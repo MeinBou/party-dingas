@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Party Rush Battle</title>
+    
+    <!-- Tailwind CSS per lo stile -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase Libraries (Versione Compatibile CDN) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+        // --- GESTIONE CONFIGURAZIONE ---
+        let firebaseConfig;
+        let appId = "default-app";
+
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+            } else {
+                // *** CONFIGURAZIONE PARTY DINGAS ***
+                firebaseConfig = {
+                    apiKey: "AIzaSyAR85QbfVoPVdv0do0eeCSMy3iRf2C6viI",
+                    authDomain: "party-dingas.firebaseapp.com",
+                    projectId: "party-dingas",
+                    storageBucket: "party-dingas.firebasestorage.app",
+                    messagingSenderId: "994634596274",
+                    appId: "1:994634596274:web:1af393584977865e22eeab",
+                    measurementId: "G-DTDQCNR19M"
+                };
+                appId = "party-dingas";
+            }
+        } catch (e) {
+            console.error("Errore configurazione:", e);
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- VARIABILI GLOBALI ---
+        let currentUser = null;
+        let currentRoomId = null;
+        let roomData = null;
+        let localState = 'login'; // login, lobby, game
+        let loginStep = 1; // 1: Nickname, 2: Menu
+        let publicRooms = []; // Lista stanze pubbliche
+        let myUserData = { nickname: '', charIndex: 0 };
+        
+        // Stato Gioco Locale
+        let gameStatus = 'intro'; 
+        let currentGameIndex = 0;
+        let introTimer = 0;
+        let activeIntervals = []; 
+        let audioCtx = null; // Per i suoni del gioco Colors
+
+        // --- DATI ROSTER ---
+        const CHARACTERS = [
+          { name: "Marinette", img: "https://i.pinimg.com/736x/b8/74/55/b87455575cd069609007a639c9490293.jpg" },
+          { name: "Re Julien", img: "https://i.pinimg.com/736x/1e/17/19/1e17194ef5b383e4202fbb4875cfbd81.jpg" },
+          { name: "Gwen", img: "https://i.pinimg.com/1200x/59/d7/15/59d71578cd5f889ae898bbc83dda29dc.jpg" },
+          { name: "Julia", img: "https://i.pinimg.com/736x/80/c2/83/80c283f82be806cdd40e71d303d09474.jpg" },
+          { name: "Duncan", img: "https://i.pinimg.com/736x/3f/2d/e1/3f2de1cd71448e1413ab3ccafbed5b4d.jpg" },
+          { name: "Conan", img: "https://i.pinimg.com/736x/19/fe/f0/19fef0cf0b848e1f5fe54d9b641af4ce.jpg" },
+          { name: "Ran", img: "https://i.pinimg.com/1200x/46/ee/c7/46eec75f3a3eeb4846216dfdd7083ff4.jpg" },
+          { name: "Rias", img: "https://i.pinimg.com/736x/d1/a7/df/d1a7df7bfe5769c39e9b66041144e4eb.jpg" },
+          { name: "Bayonetta", img: "https://i.pinimg.com/1200x/60/fc/c0/60fcc064dc97d24b96a9517f726c1970.jpg" },
+          { name: "Yoshi", img: "https://i.pinimg.com/736x/f3/05/7f/f3057f14de68b0afe682ffe93dcc479b.jpg" },
+          { name: "Rosalinda", img: "https://i.pinimg.com/736x/09/14/f0/0914f029e712e92de9d4f0081a5da032.jpg" },
+          { name: "Peach", img: "https://i.pinimg.com/736x/c0/53/fb/c053fb4dd4f8c0dd9c277212490b1962.jpg" },
+          { name: "Daisy", img: "https://i.pinimg.com/736x/e2/47/61/e2476198364b030d3a8f9a1f93becfb9.jpg" },
+          { name: "Pauline", img: "https://i.pinimg.com/736x/86/83/ee/8683ee7c89735311e61addebf517a3de.jpg" },
+          { name: "Wario", img: "https://i.pinimg.com/736x/2f/ea/be/2feabe47151fd436fbf358c299eb4870.jpg" },
+          { name: "Brago", img: "https://i.pinimg.com/736x/c6/75/2d/c6752dab1b78e4c4adc64b6ffd09b755.jpg" },
+          { name: "Ponygon", img: "https://i.pinimg.com/736x/53/e4/fb/53e4fb1c1f8964ca949c4e72663edd8f.jpg" },
+          { name: "Robin TT", img: "https://i.pinimg.com/736x/cd/57/18/cd57186e05d47ef5f75bef6f0a33f59c.jpg" },
+          { name: "Nightwing", img: "https://i.pinimg.com/736x/47/bc/ce/47bcceac6b573a1b8277b6a75f0a4b55.jpg" },
+          { name: "Robin GO", img: "https://i.pinimg.com/736x/92/b6/50/92b650adbe57c5cec55a3ef46b65e933.jpg" },
+          { name: "Johnny Bravo", img: "https://i.pinimg.com/736x/4a/62/70/4a6270678f7adcf130672bcd0af41fdf.jpg" },
+          { name: "Daphne", img: "https://i.pinimg.com/736x/aa/91/39/aa9139e32492a07712926dbd0db0b521.jpg" },
+          { name: "Shaggy", img: "https://i.pinimg.com/1200x/0e/46/70/0e46703bcf03ff84420b0b71474c9ed7.jpg" },
+          { name: "Francine", img: "https://i.pinimg.com/736x/b3/b5/f6/b3b5f6849a52b4daed92424650a98f7f.jpg" },
+          { name: "Hayley", img: "https://i.pinimg.com/originals/9d/58/70/9d58707a635942c60ee7fd1afc8403bd.gif" },
+          { name: "Finn", img: "https://i.pinimg.com/736x/7e/0b/c9/7e0bc9826a7652264f32a44bc8a40ede.jpg" },
+          { name: "Fiona", img: "https://i.pinimg.com/1200x/0b/9d/85/0b9d85c6c70be88471ad753b014de88b.jpg" },
+          { name: "Jake", img: "https://i.pinimg.com/1200x/cd/77/22/cd7722b2f98ffc75d1128913df6861d7.jpg" },
+          { name: "Cake", img: "https://i.pinimg.com/736x/70/6c/08/706c08681ae007b24d103c44910431c1.jpg" },
+          { name: "Marceline", img: "https://i.pinimg.com/736x/3a/58/7d/3a587db4bdc947c7d3458dc9582af9cd.jpg" },
+          { name: "Superboy", img: "https://i.pinimg.com/1200x/70/d3/45/70d345e2d54b002fbc96b4ae8aa255e5.jpg" },
+          { name: "Gwen Tennyson", img: "https://i.pinimg.com/736x/f7/59/57/f75957bd5bad8195e2322e58de3f8119.jpg" },
+          { name: "Poison Ivy", img: "https://i.pinimg.com/736x/72/f5/98/72f598d1ca69f3de7f38206b38d79066.jpg" },
+          { name: "Shinobu", img: "https://i.pinimg.com/736x/8b/71/a5/8b71a53282f08aea93f83852a01e4e44.jpg" }
+        ];
+
+        const BOT_NAMES = ["Bot Alpha", "Bot Beta", "Bot Omega", "CPU Turbo", "Mecha", "Robo-X", "Cyber", "Droid 99"];
+        const MINIGAMES = { MEMORY: 'memory', CHASE: 'chase', COLORS: 'colors' };
+
+        // --- INIZIALIZZAZIONE AUTH ---
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        }
+        
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                render();
+            }
+        });
+        
+        initAuth();
+
+        // --- AUDIO ENGINE PER COLORS ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playTone(freq, duration) {
+            if (!audioCtx) initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // --- FUNZIONI UTILS ---
+        function getRandomCharIndex() {
+            return Math.floor(Math.random() * CHARACTERS.length);
+        }
+        
+        function getRandomGameType() {
+             const types = Object.values(MINIGAMES);
+             return types[Math.floor(Math.random() * types.length)];
+        }
+
+        // --- FETCH PUBLIC LOBBIES ---
+        function startPublicLobbyListener() {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data'), (snapshot) => {
+                const rooms = [];
+                snapshot.forEach(doc => {
+                    if (doc.id.startsWith('rooms_')) {
+                        const data = doc.data();
+                        if (data.status === 'waiting') {
+                            rooms.push({ id: doc.id.replace('rooms_', ''), ...data });
+                        }
+                    }
+                });
+                publicRooms = rooms;
+                if (localState === 'login' && loginStep === 2) {
+                    render();
+                }
+            });
+        }
+
+        // --- FUNZIONI CORE ---
+        
+        window.selectLobbyChar = async (idx) => {
+            if (!currentUser || !currentRoomId || !roomData) return;
+            const myPlayerIdx = roomData.players.findIndex(p => p.id === currentUser.uid);
+            if (myPlayerIdx === -1) return;
+            const newPlayers = [...roomData.players];
+            newPlayers[myPlayerIdx].charIndex = idx;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), { players: newPlayers });
+            myUserData.charIndex = idx;
+        };
+
+        window.updateNickname = (val) => {
+            myUserData.nickname = val;
+        };
+
+        window.goToStep2 = () => {
+            const nick = document.getElementById('nickInput').value.trim();
+            if (!nick) return alert("Scegli un Nickname!");
+            myUserData.nickname = nick;
+            loginStep = 2;
+            startPublicLobbyListener();
+            render();
+            // Init audio context on user interaction
+            initAudio();
+        };
+
+        window.updateRoomConfig = async (key, value) => {
+            if (!roomData || roomData.hostId !== currentUser.uid) return;
+            const newConfig = { ...roomData.config, [key]: value };
+            
+            let updates = { config: newConfig };
+            if (key === 'totalRounds') {
+                const sequence = Array.from({length: value}, () => getRandomGameType());
+                updates.gameSequence = sequence;
+            }
+
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), updates);
+        };
+
+        window.createRoomDefault = async () => {
+            const nickname = myUserData.nickname;
+            const roomId = Math.floor(1000 + Math.random() * 9000).toString();
+            
+            const rounds = 5;
+            const sequence = Array.from({length: rounds}, () => getRandomGameType());
+            
+            const playerData = {
+                id: currentUser.uid,
+                nickname: nickname,
+                charIndex: getRandomCharIndex(),
+                progress: 0,
+                isHost: true,
+                isBot: false
+            };
+
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${roomId}`), {
+                hostId: currentUser.uid,
+                status: 'waiting',
+                config: { totalRounds: rounds, maxPlayers: 4, allowBots: false },
+                players: [playerData],
+                gameSequence: sequence,
+                createdAt: new Date().toISOString()
+            });
+
+            joinRoomLogic(roomId);
+        };
+
+        window.joinRoomByCode = async (codeOverride) => {
+            const code = codeOverride || document.getElementById('roomCodeInput').value;
+            if(!code) return alert("Codice mancante");
+            
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms_${code}`);
+            const snap = await getDoc(roomRef);
+            
+            if(snap.exists()) {
+                const data = snap.data();
+                if(data.status !== 'waiting') return alert("Partita già iniziata!");
+                if(data.players.length >= data.config.maxPlayers) return alert("Stanza piena!");
+                
+                const newPlayers = [...data.players, {
+                    id: currentUser.uid,
+                    nickname: myUserData.nickname,
+                    charIndex: getRandomCharIndex(),
+                    progress: 0,
+                    isHost: false,
+                    isBot: false
+                }];
+                
+                await updateDoc(roomRef, { players: newPlayers });
+                joinRoomLogic(code);
+            } else {
+                alert("Stanza non trovata");
+            }
+        };
+
+        window.addBot = async () => {
+            if (!roomData || roomData.players.length >= roomData.config.maxPlayers) return alert("Stanza piena!");
+            const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+            const botData = {
+                id: 'bot-' + Date.now() + Math.random(),
+                nickname: botName,
+                charIndex: getRandomCharIndex(),
+                progress: 0,
+                isHost: false,
+                isBot: true
+            };
+            const newPlayers = [...roomData.players, botData];
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), { players: newPlayers });
+        };
+
+        function joinRoomLogic(id) {
+            currentRoomId = id;
+            localState = 'lobby';
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${id}`), (docSnap) => {
+                if(docSnap.exists()) {
+                    roomData = docSnap.data();
+                    if(roomData.status === 'playing' && localState !== 'game') {
+                        localState = 'game';
+                        startGameSequence();
+                    }
+                    render();
+                }
+            });
+        }
+
+        window.startGameHost = async () => {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), {
+                status: 'playing'
+            });
+        };
+
+        function startGameSequence() {
+            currentGameIndex = 0;
+            gameStatus = 'intro';
+            introTimer = 4;
+            startTimerLogic();
+        }
+
+        function startTimerLogic() {
+            activeIntervals.forEach(clearInterval);
+            activeIntervals = [];
+
+            const interval = setInterval(() => {
+                if(introTimer > 0) {
+                    introTimer--;
+                    render(); 
+                } else {
+                    clearInterval(interval);
+                    if(gameStatus === 'intro') {
+                        gameStatus = 'playing';
+                        initMinigame(); 
+                        if (roomData.hostId === currentUser.uid) handleBotGameplay();
+                        render();
+                    } else if (gameStatus === 'intermission') {
+                        currentGameIndex++;
+                        if(currentGameIndex < roomData.config.totalRounds) {
+                            gameStatus = 'intro';
+                            introTimer = 4;
+                            startTimerLogic();
+                        } else {
+                            gameStatus = 'finished';
+                            render();
+                        }
+                    }
+                }
+            }, 1000);
+            activeIntervals.push(interval);
+        }
+
+        function handleBotGameplay() {
+            roomData.players.forEach(p => {
+                if (p.isBot) {
+                    const finishTime = 5000 + Math.random() * 10000;
+                    setTimeout(async () => {
+                        const freshSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`));
+                        if (!freshSnap.exists()) return;
+                        const freshData = freshSnap.data();
+                        const botIdx = freshData.players.findIndex(pl => pl.id === p.id);
+                        if (botIdx !== -1 && freshData.status === 'playing') { 
+                            const updatedPlayers = [...freshData.players];
+                            updatedPlayers[botIdx].progress += 1;
+                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), { players: updatedPlayers });
+                        }
+                    }, finishTime);
+                }
+            });
+        }
+
+        function completeMinigame() {
+            gameStatus = 'intermission';
+            introTimer = 3;
+            const myIdx = roomData.players.findIndex(p => p.id === currentUser.uid);
+            if(myIdx !== -1) {
+                const newPlayers = [...roomData.players];
+                newPlayers[myIdx].progress += 1;
+                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`), { players: newPlayers });
+            }
+            startTimerLogic();
+            render();
+        }
+
+        // --- RENDERER ---
+        function render() {
+            const appDiv = document.getElementById('app');
+            if(!currentUser) {
+                appDiv.innerHTML = `<div class="flex h-screen items-center justify-center text-white bg-slate-900">Connessione...</div>`;
+                return;
+            }
+
+            if(localState === 'login') {
+                renderLogin(appDiv);
+            } else if (localState === 'lobby') {
+                renderLobby(appDiv);
+            } else if (localState === 'game') {
+                renderGame(appDiv);
+            }
+        }
+
+        function renderLogin(container) {
+            if (loginStep === 1) {
+                container.innerHTML = `
+                    <div class="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+                        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500"></div>
+
+                        <div class="z-10 w-full max-w-lg text-center">
+                            <h1 class="text-6xl md:text-8xl font-black italic tracking-tighter mb-8 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)]">
+                                RUSH<span class="text-cyan-400">.IO</span>
+                            </h1>
+                            
+                            <div class="bg-slate-800/80 backdrop-blur border border-slate-600 p-8 rounded-2xl shadow-2xl transform transition-all hover:scale-[1.01] hover:border-cyan-500/50">
+                                <label class="block text-cyan-400 text-sm font-bold tracking-[0.2em] mb-4 uppercase">Identificativo Giocatore</label>
+                                <input type="text" id="nickInput" class="w-full bg-slate-900 border-2 border-slate-700 p-4 rounded-xl text-white text-center text-2xl font-bold focus:border-cyan-500 focus:shadow-[0_0_20px_rgba(6,182,212,0.3)] outline-none transition-all placeholder-slate-600 uppercase" placeholder="NICKNAME" onkeydown="if(event.key==='Enter') goToStep2()">
+                                
+                                <button onclick="goToStep2()" class="mt-8 w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white py-4 rounded-xl font-black text-xl uppercase tracking-widest shadow-lg transition-all active:scale-95">
+                                    INIZIA
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                const publicLobbiesHtml = publicRooms.length > 0 
+                    ? publicRooms.map(r => `
+                        <div onclick="joinRoomByCode('${r.id}')" class="group flex items-center justify-between bg-slate-800/50 hover:bg-slate-700 border border-slate-700 hover:border-cyan-500 p-3 rounded-lg cursor-pointer transition-all">
+                            <div class="flex items-center gap-3">
+                                <div class="bg-slate-900 p-2 rounded text-xs font-mono text-slate-400 group-hover:text-white">#${r.id}</div>
+                                <div class="text-sm font-bold text-slate-300 group-hover:text-cyan-300">${r.players[0].nickname}'s Lobby</div>
+                            </div>
+                            <div class="text-xs font-mono bg-black/30 px-2 py-1 rounded text-slate-400">
+                                ${r.players.length}/${r.config.maxPlayers}
+                            </div>
+                        </div>
+                    `).join('')
+                    : `<div class="text-center py-4 text-slate-500 text-sm italic">Nessuna stanza pubblica trovata...</div>`;
+
+                container.innerHTML = `
+                    <div class="min-h-screen flex flex-col items-center justify-center p-4 relative">
+                        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+                        
+                        <div class="z-10 w-full max-w-md space-y-6">
+                            <div class="text-center mb-8">
+                                <div class="text-slate-400 text-sm tracking-widest uppercase mb-1">Benvenuto</div>
+                                <div class="text-3xl font-black text-white">${myUserData.nickname}</div>
+                            </div>
+
+                            <button onclick="createRoomDefault()" class="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-6 rounded-2xl font-black text-2xl uppercase tracking-widest shadow-[0_10px_20px_rgba(192,38,211,0.3)] transition-all transform hover:-translate-y-1 active:translate-y-0 relative overflow-hidden group">
+                                <span class="relative z-10">CREA STANZA</span>
+                                <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                            </button>
+
+                            <div class="relative flex py-2 items-center">
+                                <div class="flex-grow border-t border-slate-700"></div>
+                                <span class="flex-shrink mx-4 text-xs text-slate-500 uppercase tracking-widest">Oppure</span>
+                                <div class="flex-grow border-t border-slate-700"></div>
+                            </div>
+
+                            <div class="flex gap-2">
+                                <input type="text" id="roomCodeInput" placeholder="CODICE" class="flex-1 bg-slate-800 border border-slate-600 p-3 rounded-xl text-center font-mono text-lg uppercase focus:border-cyan-500 outline-none text-white">
+                                <button onclick="joinRoomByCode()" class="bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white px-6 rounded-xl font-bold uppercase tracking-wider transition-all">ENTRA</button>
+                            </div>
+
+                            <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-4 mt-8 backdrop-blur-sm">
+                                <h3 class="text-cyan-500 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                    Lobby in Attesa
+                                </h3>
+                                <div class="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                    ${publicLobbiesHtml}
+                                </div>
+                            </div>
+
+                            <button onclick="loginStep=1; render()" class="w-full text-slate-500 text-xs hover:text-white transition-colors mt-4">TORNA INDIETRO</button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLobby(container) {
+            const isHost = roomData.hostId === currentUser.uid;
+            
+            let configPanel = '';
+            if (isHost) {
+                configPanel = `
+                    <div class="bg-slate-800/80 p-4 rounded-xl border border-slate-600 mb-4 animate-fadeIn">
+                        <h3 class="text-cyan-400 text-xs font-black uppercase tracking-widest mb-4 border-b border-slate-700 pb-2">Configurazione Partita</h3>
+                        
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-bold text-slate-300">Round Totali</span>
+                                <div class="flex items-center gap-3">
+                                    <input type="range" min="1" max="10" value="${roomData.config.totalRounds}" 
+                                        class="w-32 accent-cyan-500" 
+                                        oninput="document.getElementById('lblRound').innerText = this.value"
+                                        onchange="updateRoomConfig('totalRounds', parseInt(this.value))">
+                                    <span id="lblRound" class="font-mono font-bold w-6 text-center text-cyan-400">${roomData.config.totalRounds}</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-bold text-slate-300">Max Giocatori</span>
+                                <div class="flex items-center gap-3">
+                                    <input type="range" min="2" max="12" value="${roomData.config.maxPlayers}" 
+                                        class="w-32 accent-fuchsia-500" 
+                                        oninput="document.getElementById('lblPlayers').innerText = this.value"
+                                        onchange="updateRoomConfig('maxPlayers', parseInt(this.value))">
+                                    <span id="lblPlayers" class="font-mono font-bold w-6 text-center text-fuchsia-400">${roomData.config.maxPlayers}</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between bg-slate-900/50 p-2 rounded-lg">
+                                <span class="text-sm font-bold text-slate-300 flex items-center gap-2">🤖 Bot Abilitati</span>
+                                <input type="checkbox" ${roomData.config.allowBots ? 'checked' : ''} 
+                                    class="w-5 h-5 accent-green-500 rounded cursor-pointer"
+                                    onchange="updateRoomConfig('allowBots', this.checked)">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                configPanel = `
+                    <div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4 text-center">
+                        <div class="grid grid-cols-3 gap-2 text-xs">
+                            <div class="bg-slate-900 p-2 rounded">
+                                <div class="text-slate-500 uppercase text-[10px]">Round</div>
+                                <div class="font-bold text-cyan-400 text-lg">${roomData.config.totalRounds}</div>
+                            </div>
+                            <div class="bg-slate-900 p-2 rounded">
+                                <div class="text-slate-500 uppercase text-[10px]">Max</div>
+                                <div class="font-bold text-fuchsia-400 text-lg">${roomData.config.maxPlayers}</div>
+                            </div>
+                            <div class="bg-slate-900 p-2 rounded">
+                                <div class="text-slate-500 uppercase text-[10px]">Bot</div>
+                                <div class="font-bold text-green-400 text-lg">${roomData.config.allowBots ? 'ON' : 'OFF'}</div>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-slate-500 mt-2 italic">Solo l'host può modificare le impostazioni</div>
+                    </div>
+                `;
+            }
+
+            const playersListHtml = roomData.players.map(p => `
+                <div class="bg-slate-800 p-2 rounded-lg flex items-center gap-3 border ${p.id === currentUser.uid ? 'border-cyan-500 bg-slate-800' : 'border-slate-700'} mb-2">
+                    <img src="${CHARACTERS[p.charIndex].img}" class="w-10 h-10 rounded object-cover shadow-sm bg-black">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-bold truncate text-sm flex items-center gap-2 text-slate-200">
+                            ${p.nickname} 
+                            ${p.isHost ? '<span class="text-[10px] bg-yellow-500 text-black px-1 rounded font-black">HOST</span>' : ''}
+                            ${p.isBot ? '<span class="text-[10px] bg-slate-600 text-white px-1 rounded">BOT</span>' : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            const rosterHtml = CHARACTERS.map((c, i) => {
+                const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+                const isSelected = myPlayer && myPlayer.charIndex === i;
+                const isTaken = roomData.players.some(p => p.charIndex === i && p.id !== currentUser.uid);
+                
+                return `
+                <div onclick="${!isTaken ? `selectLobbyChar(${i})` : ''}" 
+                     class="relative group cursor-pointer transition-all duration-200 aspect-[3/4] ${isTaken ? 'opacity-30 grayscale cursor-not-allowed' : 'hover:scale-105 hover:z-10'}">
+                    <img src="${c.img}" class="w-full h-full object-cover rounded shadow-lg border-2 ${isSelected ? 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'border-slate-700 group-hover:border-slate-400'}">
+                    
+                    ${isSelected ? '<div class="absolute top-1 right-1 bg-cyan-400 text-black text-[10px] font-black px-1 rounded">P1</div>' : ''}
+                    ${isTaken ? '<div class="absolute inset-0 flex items-center justify-center"><span class="text-red-500 font-black text-2xl rotate-45 opacity-80">X</span></div>' : ''}
+                </div>
+            `}).join('');
+
+            container.innerHTML = `
+                <div class="h-screen bg-slate-900 text-white flex flex-col md:flex-row overflow-hidden relative">
+                    <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none"></div>
+
+                    <div class="w-full md:w-80 bg-slate-900/95 border-r border-slate-700 flex flex-col p-4 z-20 shadow-2xl">
+                        <div class="mb-4">
+                            <div class="flex justify-between items-end mb-1">
+                                <h2 class="text-2xl font-black italic text-white">LOBBY</h2>
+                                <button onclick="localState='login'; render()" class="text-xs text-red-400 hover:text-red-300 font-bold">ESCI</button>
+                            </div>
+                            <div class="bg-black/50 p-2 rounded flex justify-between items-center border border-slate-700">
+                                <span class="text-[10px] text-slate-500 font-bold tracking-widest">CODICE</span>
+                                <span class="font-mono text-xl font-bold tracking-widest text-cyan-400 select-all">${currentRoomId}</span>
+                            </div>
+                        </div>
+
+                        ${configPanel}
+
+                        <div class="flex-1 overflow-y-auto custom-scrollbar mb-4 pr-1">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-xs font-bold text-slate-500 uppercase">Giocatori</h3>
+                                <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400">${roomData.players.length}/${roomData.config.maxPlayers}</span>
+                            </div>
+                            ${playersListHtml}
+                        </div>
+
+                        <div class="space-y-3 mt-auto">
+                            ${isHost && roomData.config.allowBots && roomData.players.length < roomData.config.maxPlayers ? `
+                                <button onclick="addBot()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-xs font-bold uppercase tracking-wider transition-all text-slate-300">
+                                    + Aggiungi Bot
+                                </button>
+                            ` : ''}
+
+                            ${isHost ? `
+                                <button onclick="startGameHost()" class="w-full py-4 rounded-xl font-black text-xl italic uppercase tracking-widest shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all ${roomData.players.length < 2 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:scale-[1.02] text-white'}" ${roomData.players.length < 2 ? 'disabled' : ''}>
+                                    START RACE
+                                </button>
+                            ` : `
+                                <div class="w-full py-4 bg-slate-800/50 rounded-xl text-center border border-slate-700 animate-pulse">
+                                    <div class="text-[10px] text-slate-400 uppercase tracking-widest">In attesa dell'host</div>
+                                    <div class="font-black text-cyan-500 text-lg italic">READY TO RACE</div>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+
+                    <div class="flex-1 bg-slate-900/50 p-4 md:p-8 flex flex-col overflow-hidden relative">
+                         <h2 class="text-xl font-black mb-6 italic text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-500">
+                            SELEZIONA PILOTA
+                        </h2>
+                        <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                            <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+                                ${rosterHtml}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderGame(container) {
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+            const totalRounds = roomData.config.totalRounds;
+            
+            const headerHtml = `
+                <div class="h-16 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 z-30 shadow-lg">
+                    <div class="flex items-center gap-3">
+                        <img src="${CHARACTERS[myPlayer.charIndex].img}" class="w-10 h-10 rounded border border-cyan-500 object-cover bg-black">
+                        <div><div class="font-bold leading-tight text-white">${myPlayer.nickname}</div><div class="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">Tu</div></div>
+                    </div>
+                    <div class="bg-black/40 px-4 py-1 rounded border border-slate-700 font-mono text-yellow-400 font-bold text-lg tracking-widest shadow-[0_0_10px_rgba(250,204,21,0.2)]">${myPlayer.progress} / ${totalRounds} <span class="text-sm">CHECKPOINT</span></div>
+                </div>
+            `;
+
+            const sortedPlayers = [...roomData.players].sort((a,b) => b.progress - a.progress);
+            const leaderboardHtml = `
+                <div class="h-24 bg-slate-900 border-t border-slate-700 flex overflow-x-auto items-center px-4 gap-4 shrink-0 z-30">
+                    <div class="text-[10px] font-black text-slate-600 -rotate-90">RANKING</div>
+                    ${sortedPlayers.map((p, i) => `
+                        <div class="flex flex-col items-center min-w-[60px] transition-all ${p.id === currentUser.uid ? 'scale-110 z-10' : 'opacity-60 grayscale-[0.5]'}">
+                            <div class="relative">
+                                <img src="${CHARACTERS[p.charIndex].img}" class="w-10 h-10 rounded object-cover border-2 ${i===0 ? 'border-yellow-400 shadow-[0_0_10px_gold]':'border-slate-600'}">
+                                <div class="absolute -top-2 -right-2 w-5 h-5 bg-black text-white text-xs rounded flex items-center justify-center border border-slate-600 font-bold font-mono">${i+1}</div>
+                            </div>
+                            <div class="text-[10px] mt-1 truncate max-w-[60px] text-center font-bold text-slate-300">${p.nickname}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            const trackHtml = `
+                <div class="w-16 sm:w-20 bg-slate-900 border-l border-slate-800 relative flex flex-col items-center py-4 shadow-2xl shrink-0 z-20">
+                    <div class="absolute inset-y-4 left-1/2 -translate-x-1/2 w-px bg-slate-700"></div>
+                    <div class="absolute inset-y-4 left-1/2 -translate-x-1/2 w-4 bg-slate-800/50"></div>
+                    
+                    <div class="absolute top-10 w-full h-0.5 bg-yellow-400 shadow-[0_0_15px_gold] z-10"></div>
+                    <div class="absolute top-6 text-[8px] text-yellow-500 font-black tracking-widest">FINISH</div>
+
+                    ${roomData.players.map(p => {
+                        const pct = Math.min(100, (p.progress / totalRounds) * 100);
+                        let hash = 0; for (let i = 0; i < p.id.length; i++) hash = p.id.charCodeAt(i) + ((hash << 5) - hash);
+                        const offset = (hash % 16) - 8;
+                        return `
+                            <div class="absolute left-1/2 transition-all duration-1000 ease-[cubic-bezier(0.34,1.56,0.64,1)] z-10" style="bottom: ${pct}%; transform: translate(calc(-50% + ${offset}px), 50%)">
+                                <img src="${CHARACTERS[p.charIndex].img}" class="w-8 h-8 rounded-full border border-black shadow-lg object-cover ${p.id === currentUser.uid ? 'ring-2 ring-cyan-400 z-20 scale-125' : 'opacity-80 grayscale-[0.3]'}">
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+
+            let mainContent = '';
+            if(gameStatus === 'intro') {
+                const gameType = roomData.gameSequence[currentGameIndex];
+                let title = "";
+                if (gameType === MINIGAMES.MEMORY) title = "MEMORY<br>OVERLOAD";
+                else if (gameType === MINIGAMES.CHASE) title = "TARGET<br>LOCK";
+                else if (gameType === MINIGAMES.COLORS) title = "COLOR<br>SEQUENCE";
+
+                mainContent = `
+                    <div class="text-center animate-fadeIn">
+                        <h2 class="text-xl text-cyan-400 font-black tracking-[0.2em] mb-4 uppercase">Next Challenge</h2>
+                        <h1 class="text-5xl md:text-7xl font-black text-white mb-8 uppercase italic tracking-tighter drop-shadow-lg">
+                            ${title}
+                        </h1>
+                        <div class="text-9xl font-mono text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 font-black scale-110">${introTimer}</div>
+                    </div>
+                `;
+            } else if (gameStatus === 'intermission') {
+                mainContent = `
+                    <div class="text-center">
+                        <h1 class="text-6xl text-green-400 font-black mb-4 italic tracking-tighter">STAGE CLEAR!</h1>
+                        <p class="mb-6 text-xl text-slate-400 font-mono uppercase">Next stage in</p>
+                        <div class="text-7xl font-mono text-white font-bold">${introTimer}</div>
+                    </div>
+                `;
+            } else if (gameStatus === 'finished') {
+                mainContent = `
+                    <div class="text-center">
+                        <h1 class="text-7xl font-black text-yellow-400 mb-4 italic tracking-tighter drop-shadow-[0_0_25px_rgba(250,204,21,0.5)]">RACE OVER</h1>
+                        <p class="text-2xl text-slate-300">Check the Leaderboard!</p>
+                    </div>
+                `;
+            } else {
+                mainContent = `<div id="minigame-container" class="w-full h-full flex items-center justify-center relative z-10"></div>`;
+            }
+
+            container.innerHTML = `
+                <div class="h-screen w-screen bg-slate-950 text-white flex overflow-hidden font-sans relative">
+                    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-black to-black opacity-80 z-0 pointer-events-none"></div>
+                    
+                    <div class="flex-1 flex flex-col h-full relative z-10">
+                        ${headerHtml}
+                        <div class="flex-1 relative flex items-center justify-center p-2 overflow-hidden">
+                            ${mainContent}
+                        </div>
+                        ${leaderboardHtml}
+                    </div>
+                    ${trackHtml}
+                </div>
+            `;
+
+            if(gameStatus === 'playing') {
+                const gameContainer = document.getElementById('minigame-container');
+                if(gameContainer && gameContainer.innerHTML === '') {
+                    renderMinigameLogic(gameContainer);
+                }
+            }
+        }
+
+        function renderMinigameLogic(container) {
+            const type = roomData.gameSequence[currentGameIndex];
+            
+            if(type === MINIGAMES.COLORS) {
+                // --- COLORS (SIMON SAYS) LOGIC ---
+                let currentLevel = 0; // 0 to 4
+                let sequence = [];
+                let playerStep = 0;
+                let isShowing = false;
+                let started = false;
+
+                const LEVELS = [
+                    { buttons: 3, seqLen: 3 },
+                    { buttons: 4, seqLen: 5 },
+                    { buttons: 5, seqLen: 6 },
+                    { buttons: 5, seqLen: 7 },
+                    { buttons: 7, seqLen: 8 }
+                ];
+
+                const COLORS_PALETTE = [
+                    { color: 'bg-red-500', active: 'bg-red-300', freq: 261.63 }, // C4
+                    { color: 'bg-blue-500', active: 'bg-blue-300', freq: 329.63 }, // E4
+                    { color: 'bg-green-500', active: 'bg-green-300', freq: 392.00 }, // G4
+                    { color: 'bg-yellow-500', active: 'bg-yellow-300', freq: 523.25 }, // C5
+                    { color: 'bg-purple-500', active: 'bg-purple-300', freq: 659.25 }, // E5
+                    { color: 'bg-orange-500', active: 'bg-orange-300', freq: 783.99 }, // G5
+                    { color: 'bg-pink-500', active: 'bg-pink-300', freq: 1046.50 } // C6
+                ];
+
+                const generateButtonsHTML = (count) => {
+                    let html = `<div class="flex flex-wrap gap-4 justify-center items-center max-w-2xl">`;
+                    for(let i=0; i<count; i++) {
+                         html += `<div id="cbtn-${i}" onclick="colorInput(${i})" class="w-20 h-20 md:w-24 md:h-24 rounded-full ${COLORS_PALETTE[i].color} border-4 border-slate-900 cursor-pointer shadow-lg transform active:scale-95 transition-all"></div>`;
+                    }
+                    html += `</div>`;
+                    return html;
+                };
+
+                const updateUI = () => {
+                   const levelConfig = LEVELS[currentLevel];
+                   container.innerHTML = `
+                       <div class="flex flex-col items-center justify-center w-full h-full">
+                           <div class="mb-8 text-center">
+                               <div class="text-cyan-400 font-bold tracking-widest uppercase mb-1">LEVEL ${currentLevel + 1}/5</div>
+                               <div id="status-text" class="text-3xl font-black text-white italic">${started ? (isShowing ? "WATCH..." : "REPEAT!") : "READY?"}</div>
+                           </div>
+                           ${!started ? `<button onclick="startColorsGame()" class="px-8 py-4 bg-white text-black font-black text-xl rounded-xl uppercase hover:scale-105 transition-transform shadow-[0_0_20px_white]">START SEQUENCE</button>` : generateButtonsHTML(levelConfig.buttons)}
+                       </div>
+                   `;
+                };
+
+                const flashBtn = (idx) => {
+                    const btn = document.getElementById(`cbtn-${idx}`);
+                    if(btn) {
+                        btn.classList.remove(COLORS_PALETTE[idx].color);
+                        btn.classList.add(COLORS_PALETTE[idx].active);
+                        btn.classList.add('scale-110');
+                        btn.classList.add('shadow-[0_0_30px_white]');
+                        playTone(COLORS_PALETTE[idx].freq, 0.3);
+                        setTimeout(() => {
+                            btn.classList.add(COLORS_PALETTE[idx].color);
+                            btn.classList.remove(COLORS_PALETTE[idx].active);
+                            btn.classList.remove('scale-110');
+                            btn.classList.remove('shadow-[0_0_30px_white]');
+                        }, 300);
+                    }
+                };
+
+                const playSequence = async () => {
+                    isShowing = true;
+                    document.getElementById('status-text').innerText = "WATCH...";
+                    document.getElementById('status-text').className = "text-3xl font-black text-yellow-400 italic animate-pulse";
+                    
+                    await new Promise(r => setTimeout(r, 800));
+
+                    for (let i = 0; i < sequence.length; i++) {
+                        flashBtn(sequence[i]);
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                    
+                    isShowing = false;
+                    playerStep = 0;
+                    document.getElementById('status-text').innerText = "REPEAT!";
+                    document.getElementById('status-text').className = "text-3xl font-black text-green-400 italic";
+                };
+
+                const generateSequence = () => {
+                    sequence = [];
+                    const count = LEVELS[currentLevel].buttons;
+                    const len = LEVELS[currentLevel].seqLen;
+                    for(let i=0; i<len; i++) {
+                        sequence.push(Math.floor(Math.random() * count));
+                    }
+                };
+
+                window.startColorsGame = () => {
+                    started = true;
+                    initAudio(); // Resume context if suspended
+                    generateSequence();
+                    updateUI();
+                    playSequence();
+                };
+
+                window.colorInput = (idx) => {
+                    if(!started || isShowing) return;
+                    
+                    flashBtn(idx);
+
+                    if(idx !== sequence[playerStep]) {
+                        // WRONG
+                        document.getElementById('status-text').innerText = "WRONG!";
+                        document.getElementById('status-text').className = "text-4xl font-black text-red-500 animate-bounce";
+                        document.body.classList.add('bg-red-900'); // Flash screen red
+                        setTimeout(() => document.body.classList.remove('bg-red-900'), 200);
+                        
+                        isShowing = true; // Block input
+                        setTimeout(() => {
+                            generateSequence(); // New sequence for same level
+                            playSequence();
+                        }, 1000);
+                        return;
+                    }
+
+                    playerStep++;
+                    if(playerStep >= sequence.length) {
+                        // LEVEL COMPLETE
+                        currentLevel++;
+                        if(currentLevel >= LEVELS.length) {
+                            completeMinigame();
+                        } else {
+                            isShowing = true;
+                            setTimeout(() => {
+                                updateUI(); // Re-render for new button count
+                                generateSequence();
+                                playSequence();
+                            }, 1000);
+                        }
+                    }
+                };
+
+                updateUI(); // Initial Render
+
+            } else if(type === MINIGAMES.MEMORY) {
+                const icons = ['🍎', '🍌', '🍇', '🍉', '🐶', '🐱', '🐭', '🐹', '⚽', '🏀'];
+                const deck = [...icons, ...icons].sort(() => Math.random() - 0.5);
+                let flipped = [];
+                let solved = [];
+                
+                container.innerHTML = `
+                    <div class="grid grid-cols-4 gap-2 w-full max-w-md aspect-[4/5]">
+                        ${deck.map((icon, i) => `<div id="card-${i}" class="card bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 h-16 sm:h-20 hover:border-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)]" onclick="flipCard(${i}, '${icon}')">❓</div>`).join('')}
+                    </div>
+                `;
+
+                window.flipCard = (idx, icon) => {
+                    if(flipped.length >= 2 || flipped.some(f => f.idx === idx) || solved.includes(idx)) return;
+                    
+                    const el = document.getElementById(`card-${idx}`);
+                    el.innerText = icon;
+                    el.className = 'card bg-white border-2 border-white rounded-xl flex items-center justify-center text-3xl transition-all duration-300 h-16 sm:h-20 shadow-[0_0_20px_white] scale-105 rotate-y-180';
+                    
+                    flipped.push({idx, icon});
+
+                    if(flipped.length === 2) {
+                        if(flipped[0].icon === flipped[1].icon) {
+                            solved.push(flipped[0].idx, flipped[1].idx);
+                            flipped = [];
+                            if(solved.length === deck.length) setTimeout(completeMinigame, 500);
+                        } else {
+                            setTimeout(() => {
+                                flipped.forEach(f => {
+                                    const c = document.getElementById(`card-${f.idx}`);
+                                    c.innerText = '❓';
+                                    c.className = 'card bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 h-16 sm:h-20';
+                                });
+                                flipped = [];
+                            }, 800);
+                        }
+                    }
+                };
+
+            } else {
+                // CHASE
+                let progress = 0;
+                let holding = false;
+                let speed = 1500;
+                
+                container.innerHTML = `
+                    <div class="relative w-full h-full max-w-2xl max-h-[80vh] bg-slate-900 rounded-2xl overflow-hidden border-4 border-cyan-900 shadow-[0_0_30px_rgba(8,145,178,0.2)] touch-none select-none" id="chase-area">
+                        <div class="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.05)_1px,transparent_1px)] bg-[size:20px_20px]"></div>
+                        <div class="absolute top-4 left-4 bg-black/80 text-cyan-400 border border-cyan-500/50 px-4 py-2 rounded font-mono font-bold tracking-widest z-20">SYNC: <span id="prog-val" class="text-white">0</span>%</div>
+                        <div id="target" class="absolute w-24 h-24 bg-red-500/20 backdrop-blur-sm border-2 border-red-500 rounded-full flex items-center justify-center cursor-pointer transition-all duration-[1500ms] shadow-[0_0_30px_rgba(239,68,68,0.6)] group" style="top:50%; left:50%; transform: translate(-50%, -50%);">
+                            <div class="w-2 h-2 bg-red-500 rounded-full animate-ping absolute"></div>
+                            <span class="text-white font-black text-[10px] pointer-events-none group-hover:scale-110 transition-transform">HOLD</span>
+                        </div>
+                    </div>
+                `;
+
+                const target = document.getElementById('target');
+
+                const moveInt = setInterval(() => {
+                    target.style.top = (10 + Math.random() * 80) + '%';
+                    target.style.left = (10 + Math.random() * 80) + '%';
+                    target.style.transitionDuration = speed + 'ms';
+                }, speed);
+                activeIntervals.push(moveInt);
+
+                const holdInt = setInterval(() => {
+                    if(holding && progress < 100) {
+                        progress += 0.8;
+                        document.getElementById('prog-val').innerText = Math.floor(progress);
+                        target.style.transform = `translate(-50%, -50%) scale(${1 + progress/200})`;
+                        target.style.borderColor = `rgb(${255 - progress*2.5}, ${progress*2.5}, 50)`;
+                        target.style.backgroundColor = `rgba(${255 - progress*2.5}, ${progress*2.5}, 50, 0.3)`;
+                        
+                        speed = Math.max(300, 1500 - (progress * 10));
+                        
+                        if(progress >= 100) {
+                            clearInterval(moveInt);
+                            clearInterval(holdInt);
+                            completeMinigame();
+                        }
+                    }
+                }, 50);
+                activeIntervals.push(holdInt);
+
+                const startHold = (e) => { e.preventDefault(); holding = true; };
+                const endHold = (e) => { e.preventDefault(); holding = false; };
+
+                target.addEventListener('mousedown', startHold);
+                target.addEventListener('touchstart', startHold);
+                window.addEventListener('mouseup', endHold);
+                window.addEventListener('touchend', endHold);
+            }
+        }
+
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto+Mono:wght@400;700&display=swap');
+        
+        body {
+            background-color: #020617; /* Slate 950 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .rotate-y-180 { transform: rotateY(180deg); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
+    </style>
+</head>
+<body id="app" class="bg-black select-none overflow-hidden text-slate-200">
+    <!-- L'app viene iniettata qui -->
+</body>
+</html>
