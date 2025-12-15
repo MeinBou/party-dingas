@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Party Rush Battle</title>
+    <title>Dinguz</title>
     
     <!-- Tailwind CSS per lo stile -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -129,17 +129,19 @@
         }
 
         function playTone(freq, duration) {
-            if (!audioCtx) initAudio();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
+            try {
+                if (!audioCtx) initAudio();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) { console.error("Audio error", e); }
         }
 
         // --- FUNZIONI UTILS ---
@@ -154,21 +156,30 @@
 
         // --- FETCH PUBLIC LOBBIES ---
         function startPublicLobbyListener() {
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data'), (snapshot) => {
-                const rooms = [];
-                snapshot.forEach(doc => {
-                    if (doc.id.startsWith('rooms_')) {
-                        const data = doc.data();
-                        if (data.status === 'waiting') {
-                            rooms.push({ id: doc.id.replace('rooms_', ''), ...data });
+            try {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data'), (snapshot) => {
+                    const rooms = [];
+                    snapshot.forEach(doc => {
+                        if (doc.id.startsWith('rooms_')) {
+                            const data = doc.data();
+                            if (data.status === 'waiting') {
+                                rooms.push({ id: doc.id.replace('rooms_', ''), ...data });
+                            }
                         }
+                    });
+                    publicRooms = rooms;
+                    if (localState === 'login' && loginStep === 2) {
+                        render();
                     }
+                }, (error) => {
+                    console.warn("Public lobby listen error (possibly rules):", error);
+                    // Non blocchiamo la UI, semplicemente lista vuota
+                    publicRooms = [];
+                    if (localState === 'login' && loginStep === 2) render();
                 });
-                publicRooms = rooms;
-                if (localState === 'login' && loginStep === 2) {
-                    render();
-                }
-            });
+            } catch (e) {
+                console.error("Start Listener Sync Error:", e);
+            }
         }
 
         // --- FUNZIONI CORE ---
@@ -191,11 +202,21 @@
             const nick = document.getElementById('nickInput').value.trim();
             if (!nick) return alert("Scegli un Nickname!");
             myUserData.nickname = nick;
+            
+            // AGGIORNAMENTO STATO PRIMA DI QUALSIASI OPERAZIONE ASINCRONA
             loginStep = 2;
-            startPublicLobbyListener();
-            render();
-            // Init audio context on user interaction
-            initAudio();
+            render(); 
+
+            // Poi proviamo a connettere listeners e audio
+            setTimeout(() => {
+                try {
+                    startPublicLobbyListener();
+                } catch(e) { console.error("Lobby Error", e); }
+                
+                try {
+                    initAudio();
+                } catch(e) { console.error("Audio Init Error", e); }
+            }, 50);
         };
 
         window.updateRoomConfig = async (key, value) => {
@@ -399,7 +420,7 @@
 
                         <div class="z-10 w-full max-w-lg text-center">
                             <h1 class="text-6xl md:text-8xl font-black italic tracking-tighter mb-8 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)]">
-                                RUSH<span class="text-cyan-400">.IO</span>
+                                DING<span class="text-cyan-400">UZ</span>
                             </h1>
                             
                             <div class="bg-slate-800/80 backdrop-blur border border-slate-600 p-8 rounded-2xl shadow-2xl transform transition-all hover:scale-[1.01] hover:border-cyan-500/50">
