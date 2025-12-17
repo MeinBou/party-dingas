@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dinguz</title>
+    
+    <!-- Tailwind CSS per lo stile -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase Libraries (Versione Compatibile CDN) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+        // --- GESTIONE CONFIGURAZIONE ---
+        let firebaseConfig;
+        let appId = "default-app";
+
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+            } else {
+                // *** CONFIGURAZIONE PARTY DINGAS ***
+                firebaseConfig = {
+                    apiKey: "AIzaSyAR85QbfVoPVdv0do0eeCSMy3iRf2C6viI",
+                    authDomain: "party-dingas.firebaseapp.com",
+                    projectId: "party-dingas",
+                    storageBucket: "party-dingas.firebasestorage.app",
+                    messagingSenderId: "994634596274",
+                    appId: "1:994634596274:web:1af393584977865e22eeab",
+                    measurementId: "G-DTDQCNR19M"
+                };
+                appId = "party-dingas";
+            }
+        } catch (e) {
+            console.error("Errore configurazione:", e);
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- VARIABILI GLOBALI ---
+        let currentUser = null;
+        let currentRoomId = null;
+        let roomData = null;
+        let localState = 'login'; // login, lobby, game
+        let loginStep = 1; // 1: Nickname, 2: Menu
+        let publicRooms = []; // Lista stanze pubbliche
+        let myUserData = { nickname: '', charIndex: 0 };
+        
+        // Stato Gioco Locale
+        let gameStatus = 'intro'; 
+        let currentGameIndex = 0;
+        let introTimer = 0;
+        
+        // GESTIONE TIMER AVANZATA (Fix Lag/Freeze)
+        let activeIntervals = []; 
+        let activeTimeouts = [];
+        let audioCtx = null; // Per i suoni del gioco Colors
+        
+        // Cleanup listeners globali per evitare memory leak e bug input
+        let globalCleanupFns = [];
+
+        // *** FIX: STATO GLOBALE MINIGIOCHI ***
+        let mgState = {}; 
+
+        // --- DATI ROSTER ---
+        const CHARACTERS = [
+          { name: "Marinette", img: "https://i.pinimg.com/736x/b8/74/55/b87455575cd069609007a639c9490293.jpg" },
+          { name: "Re Julien", img: "https://i.pinimg.com/736x/1e/17/19/1e17194ef5b383e4202fbb4875cfbd81.jpg" },
+          { name: "Gwen", img: "https://i.pinimg.com/1200x/59/d7/15/59d71578cd5f889ae898bbc83dda29dc.jpg" },
+          { name: "Julia", img: "https://i.pinimg.com/736x/80/c2/83/80c283f82be806cdd40e71d303d09474.jpg" },
+          { name: "Duncan", img: "https://i.pinimg.com/736x/3f/2d/e1/3f2de1cd71448e1413ab3ccafbed5b4d.jpg" },
+          { name: "Conan", img: "https://i.pinimg.com/736x/19/fe/f0/19fef0cf0b848e1f5fe54d9b641af4ce.jpg" },
+          { name: "Ran", img: "https://i.pinimg.com/1200x/46/ee/c7/46eec75f3a3eeb4846216dfdd7083ff4.jpg" },
+          { name: "Rias", img: "https://i.pinimg.com/736x/d1/a7/df/d1a7df7bfe5769c39e9b66041144e4eb.jpg" },
+          { name: "Bayonetta", img: "https://i.pinimg.com/1200x/60/fc/c0/60fcc064dc97d24b96a9517f726c1970.jpg" },
+          { name: "Yoshi", img: "https://i.pinimg.com/736x/f3/05/7f/f3057f14de68b0afe682ffe93dcc479b.jpg" },
+          { name: "Rosalinda", img: "https://i.pinimg.com/736x/09/14/f0/0914f029e712e92de9d4f0081a5da032.jpg" },
+          { name: "Peach", img: "https://i.pinimg.com/736x/c0/53/fb/c053fb4dd4f8c0dd9c277212490b1962.jpg" },
+          { name: "Daisy", img: "https://i.pinimg.com/736x/e2/47/61/e2476198364b030d3a8f9a1f93becfb9.jpg" },
+          { name: "Pauline", img: "https://i.pinimg.com/736x/86/83/ee/8683ee7c89735311e61addebf517a3de.jpg" },
+          { name: "Wario", img: "https://i.pinimg.com/736x/2f/ea/be/2feabe47151fd436fbf358c299eb4870.jpg" },
+          { name: "Brago", img: "https://i.pinimg.com/736x/c6/75/2d/c6752dab1b78e4c4adc64b6ffd09b755.jpg" },
+          { name: "Ponygon", img: "https://i.pinimg.com/736x/53/e4/fb/53e4fb1c1f8964ca949c4e72663edd8f.jpg" },
+          { name: "Robin TT", img: "https://i.pinimg.com/736x/cd/57/18/cd57186e05d47ef5f75bef6f0a33f59c.jpg" },
+          { name: "Nightwing", img: "https://i.pinimg.com/736x/47/bc/ce/47bcceac6b573a1b8277b6a75f0a4b55.jpg" },
+          { name: "Robin GO", img: "https://i.pinimg.com/736x/92/b6/50/92b650adbe57c5cec55a3ef46b65e933.jpg" },
+          { name: "Johnny Bravo", img: "https://i.pinimg.com/736x/4a/62/70/4a6270678f7adcf130672bcd0af41fdf.jpg" },
+          { name: "Daphne", img: "https://i.pinimg.com/736x/aa/91/39/aa9139e32492a07712926dbd0db0b521.jpg" },
+          { name: "Shaggy", img: "https://i.pinimg.com/1200x/0e/46/70/0e46703bcf03ff84420b0b71474c9ed7.jpg" },
+          { name: "Francine", img: "https://i.pinimg.com/736x/b3/b5/f6/b3b5f6849a52b4daed92424650a98f7f.jpg" },
+          { name: "Hayley", img: "https://i.pinimg.com/originals/9d/58/70/9d58707a635942c60ee7fd1afc8403bd.gif" },
+          { name: "Finn", img: "https://i.pinimg.com/736x/7e/0b/c9/7e0bc9826a7652264f32a44bc8a40ede.jpg" },
+          { name: "Fiona", img: "https://i.pinimg.com/1200x/0b/9d/85/0b9d85c6c70be88471ad753b014de88b.jpg" },
+          { name: "Jake", img: "https://i.pinimg.com/1200x/cd/77/22/cd7722b2f98ffc75d1128913df6861d7.jpg" },
+          { name: "Cake", img: "https://i.pinimg.com/736x/70/6c/08/706c08681ae007b24d103c44910431c1.jpg" },
+          { name: "Marceline", img: "https://i.pinimg.com/736x/3a/58/7d/3a587db4bdc947c7d3458dc9582af9cd.jpg" },
+          { name: "Superboy", img: "https://i.pinimg.com/1200x/70/d3/45/70d345e2d54b002fbc96b4ae8aa255e5.jpg" },
+          { name: "Gwen Tennyson", img: "https://i.pinimg.com/736x/f7/59/57/f75957bd5bad8195e2322e58de3f8119.jpg" },
+          { name: "Poison Ivy", img: "https://i.pinimg.com/736x/72/f5/98/72f598d1ca69f3de7f38206b38d79066.jpg" },
+          { name: "Shinobu", img: "https://i.pinimg.com/736x/8b/71/a5/8b71a53282f08aea93f83852a01e4e44.jpg" }
+        ];
+
+        // LISTA GIOCHI COMPLETA
+        const MINIGAMES = { 
+            MEMORY: 'memory', 
+            CHASE: 'chase', 
+            COLORS: 'colors',
+            TIMING: 'timing',
+            EMOJI_HUNT: 'emoji_hunt',
+            DICE: 'dice',
+            COUNT: 'count',
+            RPS: 'rps',             
+            IMPOSTOR: 'impostor',
+            BOARD: 'board',
+            SPACE_DODGE: 'space_dodge' // Nuovo Minigioco
+        };
+
+        // --- INIZIALIZZAZIONE AUTH ---
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        }
+        
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                render();
+            }
+        });
+        
+        initAuth();
+
+        // --- AUDIO ENGINE PER COLORS ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playTone(freq, duration) {
+            try {
+                if (!audioCtx) initAudio();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) { console.error("Audio error", e); }
+        }
+
+        // --- FUNZIONI UTILS ---
+        function getRandomCharIndex() {
+            return Math.floor(Math.random() * CHARACTERS.length);
+        }
+        
+        // Funzione per generare sequenza UNICA di giochi randomizzati
+        function generateGameSequence(count) {
+             const types = Object.values(MINIGAMES);
+             
+             // Algoritmo Fisher-Yates Shuffle
+             for (let i = types.length - 1; i > 0; i--) {
+                 const j = Math.floor(Math.random() * (i + 1));
+                 [types[i], types[j]] = [types[j], types[i]];
+             }
+             
+             // Limita al numero di giochi unici disponibili
+             const maxUnique = types.length;
+             const actualCount = Math.min(count, maxUnique);
+             
+             return types.slice(0, actualCount);
+        }
+
+        function formatTime(ms) {
+            const seconds = Math.floor((ms / 1000) % 60);
+            const minutes = Math.floor((ms / (1000 * 60)) % 60);
+            if (minutes > 0) return `${minutes}m ${seconds}s`;
+            return `${seconds}s`;
+        }
+
+        // --- GESTIONE TIMER ROBUSTA ---
+        function clearAllTimers() {
+            activeIntervals.forEach(clearInterval);
+            activeIntervals = [];
+            activeTimeouts.forEach(clearTimeout);
+            activeTimeouts = [];
+        }
+        
+        function clearGlobalListeners() {
+            globalCleanupFns.forEach(fn => fn());
+            globalCleanupFns = [];
+        }
+
+        function setGameTimeout(fn, ms) {
+            const id = setTimeout(fn, ms);
+            activeTimeouts.push(id);
+            return id;
+        }
+
+        // --- FETCH PUBLIC LOBBIES ---
+        function startPublicLobbyListener() {
+            try {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'all_rooms'), (snapshot) => {
+                    const rooms = [];
+                    snapshot.forEach(doc => {
+                        if (doc.id.startsWith('rooms_')) {
+                            const data = doc.data();
+                            if (data.status === 'waiting') {
+                                rooms.push({ id: doc.id.replace('rooms_', ''), ...data });
+                            }
+                        }
+                    });
+                    publicRooms = rooms;
+                    if (localState === 'login' && loginStep === 2) {
+                        render();
+                    }
+                }, (error) => {
+                    console.warn("Public lobby listen error:", error);
+                    publicRooms = [];
+                    if (localState === 'login' && loginStep === 2) render();
+                });
+            } catch (e) {
+                console.error("Start Listener Sync Error:", e);
+            }
+        }
+
+        // --- FUNZIONI CORE ---
+        
+        window.selectLobbyChar = async (idx) => {
+            if (!currentUser || !currentRoomId || !roomData) return;
+            
+            const isTaken = roomData.players.some(p => p.charIndex === idx);
+            if (isTaken) return; 
+
+            const myPlayerIdx = roomData.players.findIndex(p => p.id === currentUser.uid);
+            if (myPlayerIdx === -1) return;
+            const newPlayers = [...roomData.players];
+            newPlayers[myPlayerIdx].charIndex = idx;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`), { players: newPlayers });
+            myUserData.charIndex = idx;
+        };
+
+        window.updateNickname = (val) => {
+            myUserData.nickname = val;
+        };
+
+        window.goToStep2 = () => {
+            const nick = document.getElementById('nickInput').value.trim();
+            if (!nick) return alert("Scegli un Nickname!");
+            myUserData.nickname = nick;
+            
+            loginStep = 2;
+            render(); 
+
+            setTimeout(() => {
+                try {
+                    startPublicLobbyListener();
+                } catch(e) { console.error("Lobby Error", e); }
+                
+                try {
+                    initAudio();
+                } catch(e) { console.error("Audio Init Error", e); }
+            }, 50);
+        };
+
+        window.updateRoomConfig = async (key, value) => {
+            if (!roomData || roomData.hostId !== currentUser.uid) return;
+            const newConfig = { ...roomData.config, [key]: value };
+            
+            let updates = { config: newConfig };
+            if (key === 'totalRounds') {
+                const sequence = generateGameSequence(value);
+                updates.gameSequence = sequence;
+                if (sequence.length < value) {
+                    newConfig.totalRounds = sequence.length;
+                    updates.config = newConfig;
+                }
+            }
+
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`), updates);
+        };
+
+        window.createRoomDefault = async () => {
+            const nickname = myUserData.nickname;
+            const roomId = Math.floor(1000 + Math.random() * 9000).toString();
+            const rounds = 5;
+            const sequence = generateGameSequence(rounds);
+            
+            const playerData = {
+                id: currentUser.uid,
+                nickname: nickname,
+                charIndex: getRandomCharIndex(),
+                progress: 0,
+                isHost: true,
+                isBot: false,
+                finishedAt: null
+            };
+
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${roomId}`), {
+                hostId: currentUser.uid,
+                status: 'waiting',
+                config: { totalRounds: rounds, maxPlayers: 4, allowBots: false },
+                players: [playerData],
+                gameSequence: sequence,
+                createdAt: new Date().toISOString(),
+                startedAt: null
+            });
+
+            joinRoomLogic(roomId);
+        };
+
+        window.joinRoomByCode = async (codeOverride) => {
+            const code = codeOverride || document.getElementById('roomCodeInput').value;
+            if(!code) return alert("Codice mancante");
+            
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${code}`);
+            const snap = await getDoc(roomRef);
+            
+            if(snap.exists()) {
+                const data = snap.data();
+                if(data.status !== 'waiting') return alert("Partita già iniziata!");
+                if(data.players.length >= data.config.maxPlayers) return alert("Stanza piena!");
+                
+                const takenIndices = data.players.map(p => p.charIndex);
+                let freeCharIndex = getRandomCharIndex();
+                for(let i=0; i<CHARACTERS.length; i++) {
+                    if(!takenIndices.includes(i)) {
+                        freeCharIndex = i;
+                        break; 
+                    }
+                }
+                
+                const newPlayers = [...data.players, {
+                    id: currentUser.uid,
+                    nickname: myUserData.nickname,
+                    charIndex: freeCharIndex,
+                    progress: 0,
+                    isHost: false,
+                    isBot: false,
+                    finishedAt: null
+                }];
+                
+                await updateDoc(roomRef, { players: newPlayers });
+                joinRoomLogic(code);
+            } else {
+                alert("Stanza non trovata");
+            }
+        };
+
+        window.addBot = async () => {
+            if (!roomData || roomData.players.length >= roomData.config.maxPlayers) return alert("Stanza piena!");
+            const takenIndices = roomData.players.map(p => p.charIndex);
+            const availableIndices = [];
+            for (let i = 0; i < CHARACTERS.length; i++) {
+                if (!takenIndices.includes(i)) availableIndices.push(i);
+            }
+            if (availableIndices.length === 0) return alert("Tutti i personaggi sono occupati!");
+            const randomAvailableIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+            const botName = CHARACTERS[randomAvailableIdx].name; 
+            const botData = {
+                id: 'bot-' + Date.now() + Math.random(),
+                nickname: botName,
+                charIndex: randomAvailableIdx,
+                progress: 0,
+                isHost: false,
+                isBot: true,
+                finishedAt: null
+            };
+            const newPlayers = [...roomData.players, botData];
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`), { players: newPlayers });
+        };
+
+        function joinRoomLogic(id) {
+            currentRoomId = id;
+            localState = 'lobby';
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${id}`), (docSnap) => {
+                if(docSnap.exists()) {
+                    roomData = docSnap.data();
+                    if(roomData.status === 'playing' && localState !== 'game') {
+                        localState = 'game';
+                        startGameSequence();
+                    }
+                    render();
+                }
+            });
+        }
+
+        window.startGameHost = async () => {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`), {
+                status: 'playing',
+                startedAt: Date.now()
+            });
+        };
+
+        function startGameSequence() {
+            currentGameIndex = 0;
+            gameStatus = 'intro';
+            introTimer = 4;
+            startTimerLogic();
+        }
+
+        function initMinigame() {
+            console.log("Minigame initialized");
+            const type = roomData.gameSequence[currentGameIndex];
+            
+            if (type === MINIGAMES.TIMING) {
+                mgState = { round: 0, speed: 1.5, zoneWidth: 20, position: 50, direction: 1, isRunning: true };
+            } else if (type === MINIGAMES.EMOJI_HUNT) {
+                mgState = { round: 0 };
+            } else if (type === MINIGAMES.COLORS) {
+                mgState = { currentLevel: 0, sequence: [], playerStep: 0, isShowing: false, started: false };
+            } else if (type === MINIGAMES.MEMORY) {
+                const icons = ['🍎', '🍌', '🍇', '🍉', '🐶', '🐱', '🐭', '🐹', '⚽', '🏀'];
+                const deck = [...icons, ...icons].sort(() => Math.random() - 0.5);
+                mgState = { deck: deck, flipped: [], solved: [] };
+            } else if (type === MINIGAMES.CHASE) {
+                mgState = { progress: 0, holding: false, speed: 1500, targetTop: 50, targetLeft: 50 };
+            } else if (type === MINIGAMES.DICE) {
+                mgState = { currentTotal: 0, target: 22, lastRollTime: 0, rolling: false, diceValue: 1 };
+            } else if (type === MINIGAMES.COUNT) {
+                mgState = { round: 0, objects: [], targetType: '', correctCount: 0, options: [] };
+            } else if (type === MINIGAMES.RPS) {
+                mgState = { round: 0, playerChoice: null, nullChoice: null, result: 'waiting', animating: false, lastActionTime: Date.now() };
+            } else if (type === MINIGAMES.IMPOSTOR) {
+                mgState = { round: 0, cards: [], revealed: false, canClick: true };
+            } else if (type === MINIGAMES.BOARD) {
+                let types = [];
+                for(let i=0; i<18; i++) types.push('blue');
+                for(let i=0; i<5; i++) types.push('red');
+                for(let i=0; i<4; i++) types.push('green');
+                for(let i=0; i<2; i++) types.push('purple');
+                for(let i=0; i<1; i++) types.push('orange');
+                for (let i = types.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [types[i], types[j]] = [types[j], types[i]];
+                }
+                mgState = { position: 0, boardMap: types, lastRollTime: 0, diceVal: 1, rolling: false, message: "TIRA IL DADO!" };
+            } else if (type === MINIGAMES.SPACE_DODGE) {
+                // *** SPACE DODGE INIT ***
+                mgState = {
+                    playerX: 50, // 0-100%
+                    asteroids: [],
+                    survivalTime: 0,
+                    targetTime: 16,
+                    lastSpawn: 0,
+                    gameActive: true,
+                    crashed: false
+                };
+            }
+        }
+
+        function startTimerLogic() {
+            clearAllTimers();
+
+            const interval = setInterval(() => {
+                if(introTimer > 0) {
+                    introTimer--;
+                    render(); 
+                } else {
+                    clearInterval(interval);
+                    if(gameStatus === 'intro') {
+                        gameStatus = 'playing';
+                        initMinigame(); 
+                        if (roomData.hostId === currentUser.uid) handleBotGameplay();
+                        render();
+                    } else if (gameStatus === 'intermission') {
+                        currentGameIndex++;
+                        if(currentGameIndex < roomData.gameSequence.length) {
+                            gameStatus = 'intro';
+                            introTimer = 4;
+                            startTimerLogic();
+                        } else {
+                            gameStatus = 'finished';
+                            render();
+                        }
+                    }
+                }
+            }, 1000);
+            activeIntervals.push(interval);
+        }
+
+        function handleBotGameplay() {
+            roomData.players.forEach(p => {
+                if (p.isBot) {
+                    const finishTime = 5000 + Math.random() * 10000;
+                    setTimeout(async () => {
+                        const freshSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`));
+                        if (!freshSnap.exists()) return;
+                        const freshData = freshSnap.data();
+                        const botIdx = freshData.players.findIndex(pl => pl.id === p.id);
+                        if (botIdx !== -1 && freshData.status === 'playing' && freshData.players[botIdx].progress < freshData.config.totalRounds) { 
+                            const updatedPlayers = [...freshData.players];
+                            updatedPlayers[botIdx].progress += 1;
+                            if (updatedPlayers[botIdx].progress >= freshData.config.totalRounds) {
+                                updatedPlayers[botIdx].finishedAt = Date.now();
+                            }
+                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`), { players: updatedPlayers });
+                        }
+                    }, finishTime);
+                }
+            });
+        }
+
+        async function completeMinigame() {
+            gameStatus = 'intermission';
+            introTimer = 3;
+            
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'all_rooms', `rooms_${currentRoomId}`);
+            const snap = await getDoc(roomRef);
+            if (!snap.exists()) return;
+            const currentData = snap.data();
+
+            const myIdx = currentData.players.findIndex(p => p.id === currentUser.uid);
+            if(myIdx !== -1) {
+                const newPlayers = [...currentData.players];
+                newPlayers[myIdx].progress += 1;
+                
+                if (newPlayers[myIdx].progress >= currentData.config.totalRounds) {
+                     newPlayers[myIdx].finishedAt = Date.now();
+                }
+
+                await updateDoc(roomRef, { players: newPlayers });
+            }
+            startTimerLogic();
+            render();
+        }
+
+        // --- RENDERER ---
+        function render() {
+            const appDiv = document.getElementById('app');
+            if(!currentUser) {
+                appDiv.innerHTML = `<div class="flex h-screen items-center justify-center text-white bg-slate-900">Connessione...</div>`;
+                return;
+            }
+
+            if(localState === 'login') {
+                renderLogin(appDiv);
+            } else if (localState === 'lobby') {
+                renderLobby(appDiv);
+            } else if (localState === 'game') {
+                renderGame(appDiv);
+            }
+        }
+
+        function renderLogin(container) {
+            // ... (Login invariato) ...
+            if (loginStep === 1) {
+                container.innerHTML = `
+                    <div class="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+                        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500"></div>
+                        <div class="z-10 w-full max-w-lg text-center">
+                            <h1 class="text-6xl md:text-8xl font-black italic tracking-tighter mb-8 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)]">DING<span class="text-cyan-400">UZ</span></h1>
+                            <div class="bg-slate-800/80 backdrop-blur border border-slate-600 p-8 rounded-2xl shadow-2xl transform transition-all hover:scale-[1.01] hover:border-cyan-500/50">
+                                <label class="block text-cyan-400 text-sm font-bold tracking-[0.2em] mb-4 uppercase">Identificativo Giocatore</label>
+                                <input type="text" id="nickInput" class="w-full bg-slate-900 border-2 border-slate-700 p-4 rounded-xl text-white text-center text-2xl font-bold focus:border-cyan-500 focus:shadow-[0_0_20px_rgba(6,182,212,0.3)] outline-none transition-all placeholder-slate-600 uppercase" placeholder="NICKNAME" onkeydown="if(event.key==='Enter') goToStep2()">
+                                <button onclick="goToStep2()" class="mt-8 w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white py-4 rounded-xl font-black text-xl uppercase tracking-widest shadow-lg transition-all active:scale-95">INIZIA</button>
+                            </div>
+                        </div>
+                    </div>`;
+            } else {
+                const publicLobbiesHtml = publicRooms.length > 0 
+                    ? publicRooms.map(r => `<div onclick="joinRoomByCode('${r.id}')" class="group flex items-center justify-between bg-slate-800/50 hover:bg-slate-700 border border-slate-700 hover:border-cyan-500 p-3 rounded-lg cursor-pointer transition-all"><div class="flex items-center gap-3"><div class="bg-slate-900 p-2 rounded text-xs font-mono text-slate-400 group-hover:text-white">#${r.id}</div><div class="text-sm font-bold text-slate-300 group-hover:text-cyan-300">${r.players[0].nickname}'s Lobby</div></div><div class="text-xs font-mono bg-black/30 px-2 py-1 rounded text-slate-400">${r.players.length}/${r.config.maxPlayers}</div></div>`).join('')
+                    : `<div class="text-center py-4 text-slate-500 text-sm italic">Nessuna stanza pubblica trovata...</div>`;
+
+                container.innerHTML = `
+                    <div class="min-h-screen flex flex-col items-center justify-center p-4 relative">
+                        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+                        <div class="z-10 w-full max-w-md space-y-6">
+                            <div class="text-center mb-8"><div class="text-slate-400 text-sm tracking-widest uppercase mb-1">Benvenuto</div><div class="text-3xl font-black text-white">${myUserData.nickname}</div></div>
+                            <button onclick="createRoomDefault()" class="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-6 rounded-2xl font-black text-2xl uppercase tracking-widest shadow-[0_10px_20px_rgba(192,38,211,0.3)] transition-all transform hover:-translate-y-1 active:translate-y-0 relative overflow-hidden group"><span class="relative z-10">CREA STANZA</span><div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div></button>
+                            <div class="relative flex py-2 items-center"><div class="flex-grow border-t border-slate-700"></div><span class="flex-shrink mx-4 text-xs text-slate-500 uppercase tracking-widest">Oppure</span><div class="flex-grow border-t border-slate-700"></div></div>
+                            <div class="flex gap-2"><input type="text" id="roomCodeInput" placeholder="CODICE" class="flex-1 bg-slate-800 border border-slate-600 p-3 rounded-xl text-center font-mono text-lg uppercase focus:border-cyan-500 outline-none text-white"><button onclick="joinRoomByCode()" class="bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white px-6 rounded-xl font-bold uppercase tracking-wider transition-all">ENTRA</button></div>
+                            <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-4 mt-8 backdrop-blur-sm"><h3 class="text-cyan-500 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>Lobby in Attesa</h3><div class="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">${publicLobbiesHtml}</div></div>
+                            <button onclick="loginStep=1; render()" class="w-full text-slate-500 text-xs hover:text-white transition-colors mt-4">TORNA INDIETRO</button>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        function renderLobby(container) {
+            // ... (Lobby invariata) ...
+            const isHost = roomData.hostId === currentUser.uid;
+            let configPanel = isHost ? 
+                `<div class="bg-slate-800/80 p-4 rounded-xl border border-slate-600 mb-4 animate-fadeIn"><h3 class="text-cyan-400 text-xs font-black uppercase tracking-widest mb-4 border-b border-slate-700 pb-2">Configurazione Partita</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-bold text-slate-300">Round Totali</span><div class="flex items-center gap-3"><input type="range" min="1" max="${Object.keys(MINIGAMES).length}" value="${roomData.config.totalRounds}" class="w-32 accent-cyan-500" oninput="document.getElementById('lblRound').innerText = this.value" onchange="updateRoomConfig('totalRounds', parseInt(this.value))"><span id="lblRound" class="font-mono font-bold w-6 text-center text-cyan-400">${roomData.config.totalRounds}</span></div></div><div class="flex items-center justify-between"><span class="text-sm font-bold text-slate-300">Max Giocatori</span><div class="flex items-center gap-3"><input type="range" min="2" max="12" value="${roomData.config.maxPlayers}" class="w-32 accent-fuchsia-500" oninput="document.getElementById('lblPlayers').innerText = this.value" onchange="updateRoomConfig('maxPlayers', parseInt(this.value))"><span id="lblPlayers" class="font-mono font-bold w-6 text-center text-fuchsia-400">${roomData.config.maxPlayers}</span></div></div><div class="flex items-center justify-between bg-slate-900/50 p-2 rounded-lg"><span class="text-sm font-bold text-slate-300 flex items-center gap-2">🤖 Bot Abilitati</span><input type="checkbox" ${roomData.config.allowBots ? 'checked' : ''} class="w-5 h-5 accent-green-500 rounded cursor-pointer" onchange="updateRoomConfig('allowBots', this.checked)"></div></div></div>` :
+                `<div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4 text-center"><div class="grid grid-cols-3 gap-2 text-xs"><div class="bg-slate-900 p-2 rounded"><div class="text-slate-500 uppercase text-[10px]">Round</div><div class="font-bold text-cyan-400 text-lg">${roomData.config.totalRounds}</div></div><div class="bg-slate-900 p-2 rounded"><div class="text-slate-500 uppercase text-[10px]">Max</div><div class="font-bold text-fuchsia-400 text-lg">${roomData.config.maxPlayers}</div></div><div class="bg-slate-900 p-2 rounded"><div class="text-slate-500 uppercase text-[10px]">Bot</div><div class="font-bold text-green-400 text-lg">${roomData.config.allowBots ? 'ON' : 'OFF'}</div></div></div><div class="text-[10px] text-slate-500 mt-2 italic">Solo l'host può modificare le impostazioni</div></div>`;
+
+            const playersListHtml = roomData.players.map(p => `<div class="bg-slate-800 p-2 rounded-lg flex items-center gap-3 border ${p.id === currentUser.uid ? 'border-cyan-500 bg-slate-800' : 'border-slate-700'} mb-2"><img src="${CHARACTERS[p.charIndex].img}" class="w-10 h-10 rounded object-cover shadow-sm bg-black"><div class="flex-1 min-w-0"><div class="font-bold truncate text-sm flex items-center gap-2 text-slate-200">${p.nickname} ${p.isHost ? '<span class="text-[10px] bg-yellow-500 text-black px-1 rounded font-black">HOST</span>' : ''}${p.isBot ? '<span class="text-[10px] bg-slate-600 text-white px-1 rounded">BOT</span>' : ''}</div></div></div>`).join('');
+            const rosterHtml = CHARACTERS.map((c, i) => { const myPlayer = roomData.players.find(p => p.id === currentUser.uid); const isSelected = myPlayer && myPlayer.charIndex === i; const isTaken = roomData.players.some(p => p.charIndex === i && p.id !== currentUser.uid); return `<div onclick="${!isTaken ? `selectLobbyChar(${i})` : ''}" class="relative group cursor-pointer transition-all duration-200 aspect-[3/4] ${isTaken ? 'opacity-30 grayscale cursor-not-allowed' : 'hover:scale-105 hover:z-10'}"><img src="${c.img}" class="w-full h-full object-cover rounded shadow-lg border-2 ${isSelected ? 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'border-slate-700 group-hover:border-slate-400'}">${isSelected ? '<div class="absolute top-1 right-1 bg-cyan-400 text-black text-[10px] font-black px-1 rounded">P1</div>' : ''}${isTaken ? '<div class="absolute inset-0 flex items-center justify-center"><span class="text-red-500 font-black text-2xl rotate-45 opacity-80">X</span></div>' : ''}</div>`}).join('');
+
+            container.innerHTML = `<div class="h-screen bg-slate-900 text-white flex flex-col md:flex-row overflow-hidden relative"><div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none"></div><div class="w-full md:w-80 bg-slate-900/95 border-r border-slate-700 flex flex-col p-4 z-20 shadow-2xl"><div class="mb-4"><div class="flex justify-between items-end mb-1"><h2 class="text-2xl font-black italic text-white">LOBBY</h2><button onclick="localState='login'; render()" class="text-xs text-red-400 hover:text-red-300 font-bold">ESCI</button></div><div class="bg-black/50 p-2 rounded flex justify-between items-center border border-slate-700"><span class="text-[10px] text-slate-500 font-bold tracking-widest">CODICE</span><span class="font-mono text-xl font-bold tracking-widest text-cyan-400 select-all">${currentRoomId}</span></div></div>${configPanel}<div class="flex-1 overflow-y-auto custom-scrollbar mb-4 pr-1"><div class="flex justify-between items-center mb-2"><h3 class="text-xs font-bold text-slate-500 uppercase">Giocatori</h3><span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400">${roomData.players.length}/${roomData.config.maxPlayers}</span></div>${playersListHtml}</div><div class="space-y-3 mt-auto">${isHost && roomData.config.allowBots && roomData.players.length < roomData.config.maxPlayers ? `<button onclick="addBot()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-xs font-bold uppercase tracking-wider transition-all text-slate-300">+ Aggiungi Bot</button>` : ''}${isHost ? `<button onclick="startGameHost()" class="w-full py-4 rounded-xl font-black text-xl italic uppercase tracking-widest shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all ${roomData.players.length < 2 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:scale-[1.02] text-white'}" ${roomData.players.length < 2 ? 'disabled' : ''}>START RACE</button>` : `<div class="w-full py-4 bg-slate-800/50 rounded-xl text-center border border-slate-700 animate-pulse"><div class="text-[10px] text-slate-400 uppercase tracking-widest">In attesa dell'host</div><div class="font-black text-cyan-500 text-lg italic">READY TO RACE</div></div>`}</div></div><div class="flex-1 bg-slate-900/50 p-4 md:p-8 flex flex-col overflow-hidden relative"><h2 class="text-xl font-black mb-6 italic text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-500">SELEZIONA PILOTA</h2><div class="flex-1 overflow-y-auto pr-2 custom-scrollbar"><div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">${rosterHtml}</div></div></div></div>`;
+        }
+
+        // *** FIX RE-RENDER: Struttura Granulare per NON distruggere il minigioco ***
+        function renderGame(container) {
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+            const totalRounds = roomData.config.totalRounds;
+            const sortedPlayers = [...roomData.players].sort((a,b) => b.progress - a.progress);
+
+            // Controlla se la struttura base esiste già
+            let gameRoot = document.getElementById('game-root');
+            
+            if (!gameRoot) {
+                // PRIMO RENDER: Crea lo scheletro
+                container.innerHTML = `
+                <div id="game-root" class="h-screen w-screen bg-slate-950 text-white flex overflow-hidden font-sans relative">
+                    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-black to-black opacity-80 z-0 pointer-events-none"></div>
+                    <div class="flex-1 flex flex-col h-full relative z-10">
+                        <!-- HEADER -->
+                        <div id="game-header" class="h-16 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 z-30 shadow-lg"></div>
+                        
+                        <!-- MAIN AREA -->
+                        <div id="game-main" class="flex-1 relative flex items-center justify-center p-2 overflow-hidden">
+                             <!-- IL CONTENUTO DEL GIOCO VA QUI -->
+                        </div>
+
+                        <!-- LEADERBOARD -->
+                        <div id="game-leaderboard" class="h-24 bg-slate-900 border-t border-slate-700 flex overflow-x-auto items-center px-4 gap-4 shrink-0 z-30"></div>
+                    </div>
+                    <!-- TRACK -->
+                    <div id="game-track" class="w-16 sm:w-20 bg-slate-900 border-l border-slate-800 relative flex flex-col items-center py-4 shadow-2xl shrink-0 z-20"></div>
+                </div>`;
+                gameRoot = document.getElementById('game-root');
+            }
+
+            // AGGIORNAMENTO DINAMICO (Solo Header, Track, Ranking)
+            
+            // 1. Header
+            document.getElementById('game-header').innerHTML = `
+                <div class="flex items-center gap-3"><img src="${CHARACTERS[myPlayer.charIndex].img}" class="w-10 h-10 rounded border border-cyan-500 object-cover bg-black"><div><div class="font-bold leading-tight text-white">${myPlayer.nickname}</div><div class="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">Tu</div></div></div><div class="bg-black/40 px-4 py-1 rounded border border-slate-700 font-mono text-yellow-400 font-bold text-lg tracking-widest shadow-[0_0_10px_rgba(250,204,21,0.2)]">${myPlayer.progress} / ${totalRounds} <span class="text-sm">CHECKPOINT</span></div>
+            `;
+
+            // 2. Leaderboard
+            document.getElementById('game-leaderboard').innerHTML = `
+                <div class="text-[10px] font-black text-slate-600 -rotate-90">RANKING</div>${sortedPlayers.map((p, i) => `<div class="flex flex-col items-center min-w-[60px] transition-all ${p.id === currentUser.uid ? 'scale-110 z-10' : 'opacity-60 grayscale-[0.5]'}"><div class="relative"><img src="${CHARACTERS[p.charIndex].img}" class="w-10 h-10 rounded object-cover border-2 ${i===0 ? 'border-yellow-400 shadow-[0_0_10px_gold]':'border-slate-600'}"><div class="absolute -top-2 -right-2 w-5 h-5 bg-black text-white text-xs rounded flex items-center justify-center border border-slate-600 font-bold font-mono">${i+1}</div></div><div class="text-[10px] mt-1 truncate max-w-[60px] text-center font-bold text-slate-300">${p.nickname}</div></div>`).join('')}
+            `;
+
+            // 3. Track
+            document.getElementById('game-track').innerHTML = `
+                <div class="absolute inset-y-4 left-1/2 -translate-x-1/2 w-px bg-slate-700"></div><div class="absolute inset-y-4 left-1/2 -translate-x-1/2 w-4 bg-slate-800/50"></div><div class="absolute top-10 w-full h-0.5 bg-yellow-400 shadow-[0_0_15px_gold] z-10"></div><div class="absolute top-6 text-[8px] text-yellow-500 font-black tracking-widest">FINISH</div>${roomData.players.map(p => { const pct = Math.min(100, (p.progress / totalRounds) * 100); let hash = 0; for (let i = 0; i < p.id.length; i++) hash = p.id.charCodeAt(i) + ((hash << 5) - hash); const offset = (hash % 16) - 8; return `<div class="absolute left-1/2 transition-all duration-1000 ease-[cubic-bezier(0.34,1.56,0.64,1)] z-10" style="bottom: ${pct}%; transform: translate(calc(-50% + ${offset}px), 50%)"><img src="${CHARACTERS[p.charIndex].img}" class="w-8 h-8 rounded-full border border-black shadow-lg object-cover ${p.id === currentUser.uid ? 'ring-2 ring-cyan-400 z-20 scale-125' : 'opacity-80 grayscale-[0.3]'}"></div>`; }).join('')}
+            `;
+
+            // 4. MAIN CONTENT LOGIC
+            const mainArea = document.getElementById('game-main');
+            let contentHtml = '';
+
+            if (gameStatus === 'intro') {
+                // Se siamo in Intro, sovrascriviamo sempre per il timer
+                const gameType = roomData.gameSequence[currentGameIndex];
+                let title = "";
+                if (gameType === MINIGAMES.MEMORY) title = "MEMORY<br>OVERLOAD";
+                else if (gameType === MINIGAMES.CHASE) title = "TARGET<br>LOCK";
+                else if (gameType === MINIGAMES.COLORS) title = "COLOR<br>SEQUENCE";
+                else if (gameType === MINIGAMES.TIMING) title = "AZZECCA<br>IL TIMING";
+                else if (gameType === MINIGAMES.EMOJI_HUNT) title = "CACCIA<br>ALL'EMOJI";
+                else if (gameType === MINIGAMES.DICE) title = "LANCIA<br>IL DADO";
+                else if (gameType === MINIGAMES.COUNT) title = "CONTA<br>GLI OGGETTI";
+                else if (gameType === MINIGAMES.RPS) title = "NULL<br>BATTLE";
+                else if (gameType === MINIGAMES.IMPOSTOR) title = "TROVA<br>L'INTRUSO";
+                else if (gameType === MINIGAMES.BOARD) title = "SNAKE<br>BOARD";
+                else if (gameType === MINIGAMES.SPACE_DODGE) title = "SPACE<br>DODGE";
+                
+                contentHtml = `<div class="text-center animate-fadeIn"><h2 class="text-xl text-cyan-400 font-black tracking-[0.2em] mb-4 uppercase">Next Challenge</h2><h1 class="text-5xl md:text-7xl font-black text-white mb-8 uppercase italic tracking-tighter drop-shadow-lg">${title}</h1><div class="text-9xl font-mono text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 font-black scale-110">${introTimer}</div></div>`;
+                mainArea.innerHTML = contentHtml;
+
+            } else if (gameStatus === 'intermission') {
+                contentHtml = `<div class="text-center"><h1 class="text-6xl text-green-400 font-black mb-4 italic tracking-tighter">STAGE CLEAR!</h1><p class="mb-6 text-xl text-slate-400 font-mono uppercase">Next stage in</p><div class="text-7xl font-mono text-white font-bold">${introTimer}</div></div>`;
+                mainArea.innerHTML = contentHtml;
+
+            } else if (gameStatus === 'finished') {
+                // *** FIX: CLASSIFICA COMPLETA ***
+                const finishedPlayers = roomData.players.filter(p => p.finishedAt).sort((a,b) => a.finishedAt - b.finishedAt);
+                const unfinishedPlayers = roomData.players.filter(p => !p.finishedAt).sort((a,b) => b.progress - a.progress);
+                const finalRanking = [...finishedPlayers, ...unfinishedPlayers];
+                
+                // Generazione Podio
+                const getPodiumClass = (idx) => { if (idx === 0) return "bg-yellow-400 text-yellow-900 border-yellow-200 shadow-[0_0_30px_rgba(250,204,21,0.6)] scale-110 z-20"; if (idx === 1) return "bg-slate-300 text-slate-800 border-slate-100 shadow-[0_0_20px_rgba(203,213,225,0.6)] z-10"; if (idx === 2) return "bg-orange-400 text-orange-900 border-orange-200 shadow-[0_0_20px_rgba(251,146,60,0.6)] z-0"; return ""; };
+                const renderPodiumCard = (p, idx) => { 
+                    if (!p) return `<div class="w-24 h-32 opacity-0"></div>`; 
+                    const timeStr = p.finishedAt && roomData.startedAt ? formatTime(p.finishedAt - roomData.startedAt) : "DNF"; 
+                    return `<div class="flex flex-col items-center justify-end ${idx === 0 ? '-mt-12' : ''}"><div class="relative group"><div class="w-24 h-24 md:w-32 md:h-32 rounded-full border-4 ${getPodiumClass(idx)} flex items-center justify-center overflow-hidden mb-2"><img src="${CHARACTERS[p.charIndex].img}" class="w-full h-full object-cover"></div><div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full font-black flex items-center justify-center text-sm border-2 border-black ${idx===0?'bg-yellow-400 text-yellow-900':idx===1?'bg-slate-300 text-slate-800':'bg-orange-400 text-orange-900'}">${idx+1}</div></div><div class="text-center mt-2"><div class="font-black text-lg md:text-xl uppercase tracking-wider truncate max-w-[120px]">${p.nickname}</div><div class="font-mono text-sm font-bold opacity-80">${timeStr}</div></div></div>`; 
+                };
+                const podiumHtml = `<div class="flex items-end justify-center gap-4 md:gap-8 mb-8">${renderPodiumCard(finalRanking[1], 1)}${renderPodiumCard(finalRanking[0], 0)}${renderPodiumCard(finalRanking[2], 2)}</div>`;
+                
+                // Generazione Lista "Altri"
+                const othersHtml = finalRanking.length > 3 ? finalRanking.slice(3).map((p, i) => { 
+                    const timeStr = p.finishedAt && roomData.startedAt ? formatTime(p.finishedAt - roomData.startedAt) : `Stage ${p.progress}`; 
+                    return `<div class="flex items-center gap-4 bg-slate-800 border border-slate-700 p-3 rounded-lg mb-2 w-full"><div class="font-mono font-bold text-slate-500 w-6 text-right">#${i + 4}</div><img src="${CHARACTERS[p.charIndex].img}" class="w-10 h-10 rounded-full object-cover border border-slate-500"><div class="flex-1"><div class="font-bold text-sm text-slate-200">${p.nickname}</div><div class="text-xs font-mono text-slate-400">${timeStr}</div></div></div>`; 
+                }).join('') : '';
+
+                mainArea.innerHTML = `
+                    <div class="w-full h-full flex flex-col items-center p-4 overflow-hidden">
+                        <h1 class="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 italic tracking-tighter mb-4 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] shrink-0">CHAMPIONS</h1>
+                        <div class="w-full max-w-4xl flex flex-col md:flex-row gap-8 flex-1 overflow-hidden min-h-0">
+                             <div class="flex-1 flex flex-col justify-center shrink-0">
+                                ${podiumHtml}
+                             </div>
+                             ${finalRanking.length > 3 ? `
+                                <div class="flex-1 bg-slate-900/50 rounded-xl border border-slate-700 p-4 flex flex-col overflow-hidden">
+                                    <h3 class="text-slate-400 font-bold uppercase tracking-widest text-xs mb-4 shrink-0">Leaderboard</h3>
+                                    <div class="overflow-y-auto pr-2 custom-scrollbar flex-1">
+                                        ${othersHtml}
+                                    </div>
+                                </div>
+                             ` : ''}
+                        </div>
+                    </div>`;
+
+            } else if (gameStatus === 'playing') {
+                // QUI C'È IL FIX IMPORTANTE
+                // Controlliamo se esiste già il container del minigioco
+                let minigameContainer = document.getElementById('minigame-container');
+                if (!minigameContainer) {
+                    mainArea.innerHTML = `<div id="minigame-container" class="w-full h-full flex items-center justify-center relative z-10"></div>`;
+                    minigameContainer = document.getElementById('minigame-container');
+                    // Avviamo la logica SOLO se il container è appena stato creato
+                    renderMinigameLogic(minigameContainer);
+                }
+                // Se minigameContainer esiste già, NON facciamo nulla a mainArea.
+                // Il minigioco sta girando e aggiornandosi da solo tramite i suoi timer interni.
+            }
+        }
+
+        function renderMinigameLogic(container) {
+            clearAllTimers();
+            clearGlobalListeners(); 
+
+            const type = roomData.gameSequence[currentGameIndex];
+            
+            if(type === MINIGAMES.TIMING) {
+                // ... (Timing Logic invariata) ...
+                const MAX_ROUNDS = 3;
+                const renderTiming = () => { const zoneStart = 50 - (mgState.zoneWidth / 2); container.innerHTML = `<div class="w-full max-w-lg p-6 bg-slate-900/80 border border-slate-600 rounded-2xl text-center"><h2 class="text-2xl font-black text-cyan-400 mb-2">ROUND ${mgState.round + 1}/${MAX_ROUNDS}</h2><p class="text-slate-400 text-sm mb-8 uppercase tracking-widest">Ferma nella zona verde!</p><div class="relative w-full h-12 bg-slate-800 rounded-full overflow-hidden border-2 border-slate-600 mb-8 shadow-[inset_0_2px_10px_black]"><div class="absolute top-0 bottom-0 bg-green-500/50 border-x-2 border-green-400 shadow-[0_0_15px_rgba(74,222,128,0.5)]" style="left: ${zoneStart}%; width: ${mgState.zoneWidth}%;"></div><div id="timing-indicator" class="absolute top-0 bottom-0 w-2 bg-white shadow-[0_0_10px_white] z-10" style="left: ${mgState.position}%"></div></div><button onclick="stopTiming()" class="w-full py-6 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-black text-3xl rounded-xl shadow-lg transition-all active:scale-95 uppercase tracking-widest">STOP!</button></div>`; };
+                window.stopTiming = () => { if (!mgState.isRunning) return; mgState.isRunning = false; const zoneStart = 50 - (mgState.zoneWidth / 2); const zoneEnd = 50 + (mgState.zoneWidth / 2); if (mgState.position >= zoneStart && mgState.position <= zoneEnd) { container.querySelector('button').className = "w-full py-6 bg-green-500 text-white font-black text-3xl rounded-xl shadow-lg uppercase tracking-widest"; container.querySelector('button').innerText = "PRESO!"; setGameTimeout(() => { mgState.round++; if (mgState.round >= MAX_ROUNDS) { completeMinigame(); } else { mgState.speed += 0.8; mgState.zoneWidth -= 5; mgState.position = 50; mgState.direction = Math.random() > 0.5 ? 1 : -1; mgState.isRunning = true; renderTiming(); } }, 1000); } else { container.querySelector('button').innerText = "MANCATO!"; container.querySelector('button').className = "w-full py-6 bg-slate-700 text-slate-400 font-black text-3xl rounded-xl shadow-lg uppercase tracking-widest shake-anim"; const ind = document.getElementById('timing-indicator'); if(ind) ind.className = "absolute top-0 bottom-0 w-2 bg-red-500 shadow-[0_0_20px_red] z-10"; setGameTimeout(() => { mgState.position = 50; mgState.isRunning = true; renderTiming(); }, 1000); } };
+                const tick = setInterval(() => { if (mgState.isRunning) { mgState.position += mgState.speed * mgState.direction; if (mgState.position >= 100 || mgState.position <= 0) mgState.direction *= -1; const el = document.getElementById('timing-indicator'); if (el) el.style.left = mgState.position + '%'; } }, 16); activeIntervals.push(tick); renderTiming();
+
+            } else if(type === MINIGAMES.EMOJI_HUNT) {
+                // ... (Emoji Hunt Logic invariata) ...
+                const MAX_ROUNDS = 6;
+                const EMOJI_SETS = [ { base: '🔐', odd: '🔒' }, { base: '🕐', odd: '🕑' }, { base: '🌑', odd: '🌚' }, { base: '😐', odd: '😑' }, { base: '📫', odd: '📪' }, { base: '🖊️', odd: '🖋️' }, { base: '♍', odd: '♏' } ];
+                const renderHunt = () => { const currentSet = EMOJI_SETS[mgState.round % EMOJI_SETS.length]; const gridSize = Math.min(9, 4 + mgState.round); const totalCells = gridSize * gridSize; if (mgState.targetIdx === undefined || mgState.lastRound !== mgState.round) { mgState.targetIdx = Math.floor(Math.random() * totalCells); mgState.lastRound = mgState.round; } let gridHtml = ''; for(let i=0; i<totalCells; i++) { const isTarget = i === mgState.targetIdx; const char = isTarget ? currentSet.odd : currentSet.base; const fn = isTarget ? `huntSuccess()` : `huntFail(this)`; gridHtml += `<div onclick="${fn}" class="flex items-center justify-center text-2xl sm:text-3xl cursor-pointer hover:scale-110 transition-transform select-none">${char}</div>`; } container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-2xl"><h2 class="text-2xl font-black text-fuchsia-400 mb-2">ROUND ${mgState.round + 1}/${MAX_ROUNDS}</h2><p class="text-slate-400 text-sm mb-4 uppercase tracking-widest">Trova l'intruso: ${currentSet.odd}</p><div class="grid gap-1 bg-slate-800/50 p-2 rounded-xl border border-slate-700" style="grid-template-columns: repeat(${gridSize}, minmax(0, 1fr));">${gridHtml}</div></div>`; };
+                window.huntSuccess = () => { mgState.round++; if(mgState.round >= MAX_ROUNDS) completeMinigame(); else renderHunt(); };
+                window.huntFail = (el) => { el.classList.add('animate-spin'); el.style.opacity = '0.5'; setGameTimeout(() => el.classList.remove('animate-spin'), 500); }; renderHunt();
+
+            } else if(type === MINIGAMES.COLORS) {
+                // ... (Colors Logic invariata, il fix è in renderGame) ...
+                const LEVELS = [ { buttons: 3, seqLen: 3 }, { buttons: 4, seqLen: 5 }, { buttons: 5, seqLen: 6 }, { buttons: 5, seqLen: 7 }, { buttons: 7, seqLen: 7 } ];
+                const COLORS_PALETTE = [ { color: 'bg-red-500', active: 'bg-red-300', freq: 261.63 }, { color: 'bg-blue-500', active: 'bg-blue-300', freq: 329.63 }, { color: 'bg-green-500', active: 'bg-green-300', freq: 392.00 }, { color: 'bg-yellow-500', active: 'bg-yellow-300', freq: 523.25 }, { color: 'bg-purple-500', active: 'bg-purple-300', freq: 659.25 }, { color: 'bg-orange-500', active: 'bg-orange-300', freq: 783.99 }, { color: 'bg-pink-500', active: 'bg-pink-300', freq: 1046.50 } ];
+                const generateButtonsHTML = (count) => { let html = `<div class="flex flex-wrap gap-4 justify-center items-center max-w-2xl">`; for(let i=0; i<count; i++) html += `<div id="cbtn-${i}" onclick="colorInput(${i})" class="w-20 h-20 md:w-24 md:h-24 rounded-full ${COLORS_PALETTE[i].color} border-4 border-slate-900 cursor-pointer shadow-lg transform active:scale-95 transition-all"></div>`; html += `</div>`; return html; };
+                const updateUI = () => { const levelConfig = LEVELS[mgState.currentLevel]; container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full"><div class="mb-8 text-center"><div class="text-cyan-400 font-bold tracking-widest uppercase mb-1">LEVEL ${mgState.currentLevel + 1}/5</div><div id="status-text" class="text-3xl font-black text-white italic">${mgState.started ? (mgState.isShowing ? "WATCH..." : "REPEAT!") : "READY?"}</div></div>${!mgState.started ? `<button onclick="startColorsGame()" class="px-8 py-4 bg-white text-black font-black text-xl rounded-xl uppercase hover:scale-105 transition-transform shadow-[0_0_20px_white]">START SEQUENCE</button>` : generateButtonsHTML(levelConfig.buttons)}</div>`; };
+                const flashBtn = (idx) => { const btn = document.getElementById(`cbtn-${idx}`); if(btn) { btn.classList.remove(COLORS_PALETTE[idx].color); btn.classList.add(COLORS_PALETTE[idx].active); btn.classList.add('scale-110'); btn.classList.add('shadow-[0_0_30px_white]'); playTone(COLORS_PALETTE[idx].freq, 0.3); setGameTimeout(() => { btn.classList.add(COLORS_PALETTE[idx].color); btn.classList.remove(COLORS_PALETTE[idx].active); btn.classList.remove('scale-110'); btn.classList.remove('shadow-[0_0_30px_white]'); }, 300); } };
+                const playSequence = async () => { mgState.isShowing = true; document.getElementById('status-text').innerText = "WATCH..."; document.getElementById('status-text').className = "text-3xl font-black text-yellow-400 italic animate-pulse"; await new Promise(r => setGameTimeout(r, 800)); for (let i = 0; i < mgState.sequence.length; i++) { flashBtn(mgState.sequence[i]); await new Promise(r => setGameTimeout(r, 600)); } mgState.isShowing = false; mgState.playerStep = 0; document.getElementById('status-text').innerText = "REPEAT!"; document.getElementById('status-text').className = "text-3xl font-black text-green-400 italic"; };
+                const generateSequence = () => { mgState.sequence = []; const count = LEVELS[mgState.currentLevel].buttons; const len = LEVELS[mgState.currentLevel].seqLen; for(let i=0; i<len; i++) mgState.sequence.push(Math.floor(Math.random() * count)); };
+                window.startColorsGame = () => { mgState.started = true; initAudio(); generateSequence(); updateUI(); playSequence(); };
+                window.colorInput = (idx) => { if(!mgState.started || mgState.isShowing) return; flashBtn(idx); if(idx !== mgState.sequence[mgState.playerStep]) { document.getElementById('status-text').innerText = "WRONG!"; document.getElementById('status-text').className = "text-4xl font-black text-red-500 animate-bounce"; document.body.classList.add('bg-red-900'); setGameTimeout(() => document.body.classList.remove('bg-red-900'), 200); mgState.isShowing = true; setGameTimeout(() => { generateSequence(); playSequence(); }, 1000); return; } mgState.playerStep++; if(mgState.playerStep >= mgState.sequence.length) { mgState.currentLevel++; if(mgState.currentLevel >= LEVELS.length) completeMinigame(); else { mgState.isShowing = true; setGameTimeout(() => { updateUI(); generateSequence(); playSequence(); }, 1000); } } };
+                updateUI();
+
+            } else if(type === MINIGAMES.MEMORY) {
+                container.innerHTML = `<div class="grid grid-cols-4 gap-2 w-full max-w-md aspect-[4/5]">${mgState.deck.map((icon, i) => { const isFlipped = mgState.flipped.some(f => f.idx === i) || mgState.solved.includes(i); return `<div id="card-${i}" class="card ${isFlipped ? 'bg-white border-2 border-white scale-105 rotate-y-180 shadow-[0_0_20px_white]' : 'bg-slate-800 border-2 border-slate-600'} rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 h-16 sm:h-20 hover:border-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)]" onclick="flipCard(${i}, '${icon}')">${isFlipped ? icon : '❓'}</div>` }).join('')}</div>`;
+                window.flipCard = (idx, icon) => { if(mgState.flipped.length >= 2 || mgState.flipped.some(f => f.idx === idx) || mgState.solved.includes(idx)) return; const el = document.getElementById(`card-${idx}`); el.innerText = icon; el.className = 'card bg-white border-2 border-white rounded-xl flex items-center justify-center text-3xl transition-all duration-300 h-16 sm:h-20 shadow-[0_0_20px_white] scale-105 rotate-y-180'; mgState.flipped.push({idx, icon}); if(mgState.flipped.length === 2) { if(mgState.flipped[0].icon === mgState.flipped[1].icon) { mgState.solved.push(mgState.flipped[0].idx, mgState.flipped[1].idx); mgState.flipped = []; if(mgState.solved.length === mgState.deck.length) setGameTimeout(completeMinigame, 500); } else { setGameTimeout(() => { mgState.flipped.forEach(f => { const c = document.getElementById(`card-${f.idx}`); if(c) { c.innerText = '❓'; c.className = 'card bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 h-16 sm:h-20'; } }); mgState.flipped = []; }, 800); } } };
+                if (mgState.flipped.length === 2) { setGameTimeout(() => { mgState.flipped.forEach(f => { const c = document.getElementById(`card-${f.idx}`); if(c) { c.innerText = '❓'; c.className = 'card bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-3xl cursor-pointer transition-all duration-300 h-16 sm:h-20'; } }); mgState.flipped = []; }, 800); }
+                if (mgState.solved.length === mgState.deck.length) { setGameTimeout(completeMinigame, 500); }
+
+            } else if (type === MINIGAMES.CHASE) {
+                // ... (Chase Logic invariata) ...
+                container.innerHTML = `<div class="relative w-full h-full max-w-2xl max-h-[80vh] bg-slate-900 rounded-2xl overflow-hidden border-4 border-cyan-900 shadow-[0_0_30px_rgba(8,145,178,0.2)] touch-none select-none" id="chase-area"><div class="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.05)_1px,transparent_1px)] bg-[size:20px_20px]"></div><div class="absolute top-4 left-4 right-4 h-8 bg-black/80 rounded-full border border-cyan-500/30 overflow-hidden z-20"><div class="h-full bg-cyan-500 transition-all duration-100 ease-linear" style="width: ${mgState.progress / 2}%"></div><div class="absolute inset-0 flex items-center justify-center font-mono font-bold text-white text-sm tracking-widest drop-shadow-md">SYNC: ${Math.floor(mgState.progress / 2)}%</div></div><div id="target" class="absolute w-24 h-24 bg-red-500/20 backdrop-blur-sm border-2 border-red-500 rounded-full flex items-center justify-center cursor-pointer transition-all duration-[1500ms] shadow-[0_0_30px_rgba(239,68,68,0.6)] group" style="top:${mgState.targetTop}%; left:${mgState.targetLeft}%; transform: translate(-50%, -50%);"><div class="w-2 h-2 bg-red-500 rounded-full animate-ping absolute"></div><span class="text-white font-black text-[10px] pointer-events-none group-hover:scale-110 transition-transform">HOLD</span></div></div>`;
+                const target = document.getElementById('target');
+                const moveInt = setInterval(() => { mgState.targetTop = (10 + Math.random() * 80); mgState.targetLeft = (10 + Math.random() * 80); target.style.top = mgState.targetTop + '%'; target.style.left = mgState.targetLeft + '%'; target.style.transitionDuration = mgState.speed + 'ms'; }, mgState.speed); activeIntervals.push(moveInt);
+                const holdInt = setInterval(() => { if(mgState.holding && mgState.progress < 200) { mgState.progress += 0.8; const visualProgress = Math.floor(mgState.progress / 2); const bar = container.querySelector('.bg-cyan-500'); if (bar) bar.style.width = (mgState.progress / 2) + '%'; const text = container.querySelector('.font-mono'); if (text) text.innerText = `SYNC: ${visualProgress}%`; target.style.transform = `translate(-50%, -50%) scale(${1 + mgState.progress/200})`; target.style.borderColor = `rgb(${255 - mgState.progress*1.2}, ${mgState.progress*1.2}, 50)`; target.style.backgroundColor = `rgba(${255 - mgState.progress*1.2}, ${mgState.progress*1.2}, 50, 0.3)`; mgState.speed = Math.max(300, 1500 - (mgState.progress * 5)); if(mgState.progress >= 200) { completeMinigame(); } } }, 50); activeIntervals.push(holdInt);
+                const startHold = (e) => { if(e.target !== target && !target.contains(e.target)) return; e.preventDefault(); e.stopPropagation(); mgState.holding = true; }; const endHold = (e) => { e.preventDefault(); mgState.holding = false; }; target.addEventListener('mousedown', startHold); target.addEventListener('touchstart', startHold); window.addEventListener('mouseup', endHold); window.addEventListener('touchend', endHold); globalCleanupFns.push(() => { window.removeEventListener('mouseup', endHold); window.removeEventListener('touchend', endHold); });
+
+            } else if (type === MINIGAMES.DICE) {
+                // ... (Dice Logic invariata) ...
+                const renderDice = () => { const timeLeft = Math.max(0, Math.ceil((2000 - (Date.now() - mgState.lastRollTime)) / 1000)); const canRoll = timeLeft === 0; container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-sm"><h2 class="text-3xl font-black text-white mb-2 tracking-widest">TOTALE: <span class="text-cyan-400">${mgState.currentTotal}/${mgState.target}</span></h2><div id="dice-cube" class="w-32 h-32 bg-white rounded-2xl flex items-center justify-center text-8xl font-black text-black shadow-[0_0_30px_white] mb-8 select-none transition-transform duration-500 ${mgState.rolling ? 'animate-spin' : ''}">${mgState.diceValue}</div><button onclick="rollDice()" class="w-full py-6 rounded-xl font-black text-2xl uppercase tracking-widest transition-all active:scale-95 shadow-lg ${canRoll ? 'bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white hover:scale-105 cursor-pointer' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}" ${!canRoll ? 'disabled' : ''}>${canRoll ? 'LANCIA IL DADO!' : `ATTENDI ${timeLeft}s`}</button></div>`; };
+                window.rollDice = () => { if (Date.now() - mgState.lastRollTime < 3000) return; mgState.rolling = true; mgState.lastRollTime = Date.now(); renderDice(); let rolls = 0; const rollInt = setInterval(() => { mgState.diceValue = Math.ceil(Math.random() * 6); const diceEl = document.getElementById('dice-cube'); if (diceEl) diceEl.innerText = mgState.diceValue; rolls++; if (rolls > 10) { clearInterval(rollInt); mgState.rolling = false; mgState.currentTotal += mgState.diceValue; renderDice(); if (mgState.currentTotal >= mgState.target) completeMinigame(); } }, 50); activeIntervals.push(rollInt); };
+                const timerInt = setInterval(() => { if (!mgState.rolling) renderDice(); }, 1000); activeIntervals.push(timerInt); renderDice();
+
+            } else if (type === MINIGAMES.COUNT) {
+                // ... (Count Logic invariata con anti-spam) ...
+                const MAX_ROUNDS = 3;
+                const FRUITS = ['🍎', '🍌', '🍇', '🍊', '🍒', '🍉'];
+                const generateRound = () => { mgState.objects = []; const counts = {}; const totalItems = 25 + Math.floor(Math.random() * 25); for(let i=0; i<totalItems; i++) { const fruit = FRUITS[Math.floor(Math.random() * FRUITS.length)]; mgState.objects.push(fruit); counts[fruit] = (counts[fruit] || 0) + 1; } const availableTargets = Object.keys(counts); mgState.targetType = availableTargets[Math.floor(Math.random() * availableTargets.length)]; mgState.correctCount = counts[mgState.targetType]; const opts = new Set([mgState.correctCount]); while(opts.size < 4) { const offset = Math.floor(Math.random() * 5) - 2; const val = Math.max(1, mgState.correctCount + offset); if (val !== mgState.correctCount) opts.add(val); if(opts.size < 4) opts.add(Math.floor(Math.random() * 10) + 1); } mgState.options = Array.from(opts).sort((a,b) => a-b); };
+                if (mgState.round === 0 && !mgState.targetType) generateRound();
+                const renderCount = () => { container.innerHTML = `<div class="flex flex-col items-center justify-between w-full h-full max-w-lg pb-4"><div class="text-center mb-2"><h2 class="text-xl font-black text-yellow-400">ROUND ${mgState.round + 1}/${MAX_ROUNDS}</h2><p class="text-white text-lg font-bold">QUANTE ${mgState.targetType} CI SONO?</p></div><div class="flex-1 w-full bg-slate-800/50 rounded-xl border border-slate-600 p-4 mb-4 flex flex-wrap gap-4 items-center justify-center content-center overflow-y-auto">${mgState.objects.map(obj => `<div class="text-2xl sm:text-3xl select-none animate-fadeIn">${obj}</div>`).join('')}</div><div class="grid grid-cols-4 gap-3 w-full">${mgState.options.map(opt => `<button onclick="checkCount(${opt})" class="bg-slate-700 hover:bg-slate-600 border border-slate-500 text-white font-black text-xl py-4 rounded-xl shadow-lg active:scale-95 transition-all">${opt}</button>`).join('')}</div></div>`; };
+                window.checkCount = (val) => { if (mgState.cooldown) return; if (val === mgState.correctCount) { mgState.round++; if (mgState.round >= MAX_ROUNDS) { completeMinigame(); } else { generateRound(); renderCount(); } } else { mgState.cooldown = true; container.classList.add('bg-red-900/50'); const btns = container.querySelectorAll('button'); btns.forEach(b => { b.disabled = true; b.classList.add('opacity-30', 'cursor-not-allowed'); }); setGameTimeout(() => { container.classList.remove('bg-red-900/50'); mgState.cooldown = false; btns.forEach(b => { b.disabled = false; b.classList.remove('opacity-30', 'cursor-not-allowed'); }); }, 2000); } };
+                renderCount();
+
+            } else if (type === MINIGAMES.RPS) {
+                // ... (RPS Logic invariata) ...
+                const MAX_ROUNDS = 2;
+                const OPTIONS = ['🪨', '📄', '✂️']; 
+                const renderRPS = () => { let statusText = "SCEGLI LA TUA ARMA"; let statusColor = "text-white"; if (mgState.result === 'win') { statusText = "VITTORIA!"; statusColor = "text-green-400"; } else if (mgState.result === 'lose') { statusText = "SCONFITTA!"; statusColor = "text-red-500"; } else if (mgState.result === 'draw') { statusText = "PAREGGIO!"; statusColor = "text-yellow-400"; } container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-lg"><h2 class="text-xl font-black text-fuchsia-400 mb-2 uppercase tracking-widest">ROUND ${mgState.round + 1}/${MAX_ROUNDS}</h2><div class="mb-8 w-32 h-32 bg-slate-800 rounded-full border-4 border-slate-600 flex items-center justify-center text-6xl shadow-[0_0_30px_black] relative">${mgState.nullChoice || `<span class="text-slate-600 text-8xl font-black">?</span>`}<div class="absolute -bottom-4 bg-slate-900 text-slate-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-widest">NULL</div></div><div class="text-3xl font-black ${statusColor} italic mb-8 animate-pulse">${statusText}</div><div class="flex gap-4">${OPTIONS.map((opt, i) => `<button onclick="playRPS(${i})" ${mgState.animating ? 'disabled' : ''} class="w-20 h-20 md:w-24 md:h-24 bg-slate-800 border-2 border-slate-600 rounded-2xl text-4xl hover:scale-110 hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all active:scale-95 disabled:opacity-50 disabled:scale-100">${opt}</button>`).join('')}</div></div>`; };
+                window.playRPS = (choiceIdx) => { if (mgState.animating) return; mgState.animating = true; mgState.playerChoice = OPTIONS[choiceIdx]; mgState.lastActionTime = Date.now(); let shuffleCount = 0; const shuffleInt = setInterval(() => { mgState.nullChoice = OPTIONS[Math.floor(Math.random() * 3)]; renderRPS(); shuffleCount++; if (shuffleCount > 10) { clearInterval(shuffleInt); resolveRPS(choiceIdx); } }, 100); activeIntervals.push(shuffleInt); };
+                const resolveRPS = (playerIdx) => { const nullIdx = Math.floor(Math.random() * 3); mgState.nullChoice = OPTIONS[nullIdx]; if (playerIdx === nullIdx) { mgState.result = 'draw'; } else if ((playerIdx === 0 && nullIdx === 2) || (playerIdx === 1 && nullIdx === 0) || (playerIdx === 2 && nullIdx === 1)) { mgState.result = 'win'; } else { mgState.result = 'lose'; } mgState.lastActionTime = Date.now(); renderRPS(); setGameTimeout(() => { if (mgState.result === 'win') { mgState.round++; if (mgState.round >= MAX_ROUNDS) { completeMinigame(); } else { resetRound(); } } else { resetRound(); } }, 1500); };
+                const resetRound = () => { mgState.playerChoice = null; mgState.nullChoice = null; mgState.result = 'waiting'; mgState.animating = false; mgState.lastActionTime = Date.now(); renderRPS(); };
+                const watchdogInt = setInterval(() => { if (mgState.result !== 'waiting' && (Date.now() - mgState.lastActionTime > 2500)) { if (mgState.result === 'win') { mgState.round++; if (mgState.round >= MAX_ROUNDS) completeMinigame(); else resetRound(); } else resetRound(); } }, 1000); activeIntervals.push(watchdogInt);
+                renderRPS();
+
+            } else if (type === MINIGAMES.IMPOSTOR) {
+                // ... (Impostor Logic invariata) ...
+                const MAX_ROUNDS = 3;
+                const initRound = () => { const playerCharIndices = roomData.players.map(p => p.charIndex); const availableIndices = CHARACTERS.map((_, i) => i).filter(i => !playerCharIndices.includes(i)); const shuffled = availableIndices.sort(() => Math.random() - 0.5); const count = 3 + mgState.round; const selectedIndices = shuffled.slice(0, count); const winnerIndex = Math.floor(Math.random() * count); mgState.cards = selectedIndices.map((charIdx, i) => ({ charIndex: charIdx, isImpostor: i === winnerIndex, revealed: false, state: 'back' })); mgState.canClick = true; };
+                if (mgState.cards.length === 0) initRound();
+                const renderImpostor = () => { container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-2xl"><h2 class="text-2xl font-black text-green-400 mb-2 uppercase tracking-widest">ROUND ${mgState.round + 1}/${MAX_ROUNDS}</h2><p class="text-slate-400 text-sm mb-6 uppercase tracking-widest">Trova l'intruso!</p><div class="flex flex-wrap justify-center gap-4">${mgState.cards.map((card, i) => `<div onclick="clickCard(${i})" class="w-24 h-32 md:w-32 md:h-44 relative perspective-1000 cursor-pointer group ${card.revealed ? 'pointer-events-none' : 'hover:scale-105'} transition-transform"><div class="w-full h-full relative transition-all duration-500 transform-style-3d ${card.revealed ? 'rotate-y-180' : ''}"><div class="absolute inset-0 backface-hidden rounded-xl overflow-hidden border-2 border-slate-600 shadow-lg"><img src="${CHARACTERS[card.charIndex].img}" class="w-full h-full object-cover grayscale brightness-50 group-hover:grayscale-0 group-hover:brightness-100 transition-all"><div class="absolute inset-0 flex items-center justify-center bg-black/20 text-white font-black text-3xl opacity-0 group-hover:opacity-100">?</div></div><div class="absolute inset-0 backface-hidden rotate-y-180 rounded-xl flex items-center justify-center text-4xl font-black text-white shadow-[0_0_20px_rgba(0,0,0,0.5)] ${card.isImpostor ? 'bg-green-500 border-4 border-green-300' : 'bg-red-500 border-4 border-red-300'}">${card.isImpostor ? '✅' : '❌'}</div></div></div>`).join('')}</div></div>`; };
+                window.clickCard = (idx) => { if (!mgState.canClick || mgState.cards[idx].revealed) return; const card = mgState.cards[idx]; card.revealed = true; renderImpostor(); if (card.isImpostor) { mgState.canClick = false; setGameTimeout(() => { mgState.round++; if (mgState.round >= MAX_ROUNDS) { completeMinigame(); } else { mgState.cards = []; initRound(); renderImpostor(); } }, 1000); } else { } };
+                renderImpostor();
+
+            } else if (type === MINIGAMES.BOARD) {
+                // ... (Board Logic invariata) ...
+                const renderBoard = () => { const timeLeft = Math.max(0, Math.ceil((2000 - (Date.now() - mgState.lastRollTime)) / 1000)); const canRoll = timeLeft === 0 && !mgState.rolling; const gridHtml = mgState.boardMap.map((type, i) => { const isPlayerHere = mgState.position === (i + 1); let colorClass = 'bg-slate-800 border-slate-700'; let symbol = ''; if (type === 'green') { colorClass = 'bg-green-900/50 border-green-500'; symbol = '+2'; } else if (type === 'red') { colorClass = 'bg-red-900/50 border-red-500'; symbol = '-2'; } else if (type === 'orange') { colorClass = 'bg-orange-900/50 border-orange-500'; symbol = 'x2'; } else if (type === 'purple') { colorClass = 'bg-purple-900/50 border-purple-500'; symbol = ':2'; } else { colorClass = 'bg-blue-900/30 border-blue-500/30'; } return `<div class="relative w-8 h-8 sm:w-10 sm:h-10 border rounded flex items-center justify-center text-[10px] font-bold ${colorClass}">${symbol}${isPlayerHere ? `<div class="absolute inset-0 flex items-center justify-center z-10"><img src="${CHARACTERS[myUserData.charIndex].img}" class="w-8 h-8 rounded-full border-2 border-white shadow-lg object-cover animate-bounce"></div>` : ''}<div class="absolute bottom-0 right-0 text-[8px] opacity-50 px-1">${i+1}</div></div>`; }).join(''); container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-4xl p-2"><div class="flex justify-between w-full mb-2 px-2"><div class="text-xs font-mono text-slate-400">POS: <span class="text-cyan-400 text-lg font-bold">${mgState.position}/30</span></div><div class="text-xs font-mono text-slate-400 text-right">${mgState.message}</div></div><div class="flex gap-2 text-[10px] mb-4 flex-wrap justify-center opacity-80"><span class="px-2 py-1 bg-green-900/50 border border-green-500 rounded text-green-200">Verde: +2</span><span class="px-2 py-1 bg-red-900/50 border border-red-500 rounded text-red-200">Rosso: -2</span><span class="px-2 py-1 bg-orange-900/50 border border-orange-500 rounded text-orange-200">Arancione: x2</span><span class="px-2 py-1 bg-purple-900/50 border border-purple-500 rounded text-purple-200">Viola: :2</span></div><div class="flex flex-wrap gap-1 justify-center mb-4 max-h-[50vh] overflow-y-auto p-1 custom-scrollbar">${gridHtml}</div><div class="flex items-center gap-4"><div class="w-20 h-20 bg-white rounded-xl flex items-center justify-center text-5xl font-black text-black shadow-[0_0_20px_white] ${mgState.rolling ? 'animate-spin' : ''}">${mgState.diceVal}</div><button onclick="rollBoardDice()" class="h-20 px-8 rounded-xl font-black text-xl uppercase tracking-widest transition-all shadow-lg ${canRoll ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-105' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}" ${!canRoll ? 'disabled' : ''}>${canRoll ? 'LANCIA' : `WAIT ${timeLeft}s`}</button></div></div>`; };
+                window.rollBoardDice = () => { if (Date.now() - mgState.lastRollTime < 2000 || mgState.rolling) return; mgState.rolling = true; mgState.lastRollTime = Date.now(); mgState.message = "Rotolando..."; renderBoard(); let rolls = 0; const rollInt = setInterval(() => { mgState.diceVal = Math.ceil(Math.random() * 6); rolls++; renderBoard(); if (rolls > 10) { clearInterval(rollInt); mgState.rolling = false; let move = mgState.diceVal; let newPos = mgState.position + move; if (newPos >= 30) { mgState.position = 30; renderBoard(); completeMinigame(); return; } const tileType = mgState.boardMap[newPos - 1]; let effectMsg = ""; if (tileType === 'green') { newPos += 2; effectMsg = " (+2!)"; } else if (tileType === 'red') { newPos -= 2; effectMsg = " (-2!)"; } else if (tileType === 'orange') { newPos *= 2; effectMsg = " (x2!)"; } else if (tileType === 'purple') { newPos = Math.floor(newPos / 2); effectMsg = " (:2!)"; } if (newPos < 0) newPos = 0; if (newPos >= 30) { newPos = 30; mgState.position = newPos; mgState.message = "TRAGUARDO!"; renderBoard(); completeMinigame(); return; } mgState.position = newPos; mgState.message = `Posizione: ${newPos} ${effectMsg}`; renderBoard(); } }, 50); activeIntervals.push(rollInt); };
+                const timerInt = setInterval(() => { if (!mgState.rolling) renderBoard(); }, 500); activeIntervals.push(timerInt); renderBoard();
+
+            } else if (type === MINIGAMES.SPACE_DODGE) {
+                // *** SPACE DODGE LOGIC ***
+                const renderSpace = () => {
+                    // Calcolo % sopravvivenza
+                    const survivalPct = Math.min(100, (mgState.survivalTime / mgState.targetTime) * 100).toFixed(1);
+                    
+                    container.innerHTML = `
+                        <div class="relative w-full h-full max-w-lg bg-slate-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="space-area">
+                            <!-- Background Stars -->
+                            <div class="absolute inset-0 opacity-50 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] animate-[pulse_4s_infinite]"></div>
+                            
+                            <!-- Timer Bar -->
+                            <div class="absolute top-4 left-4 right-4 h-6 bg-slate-800 rounded-full border border-slate-600 overflow-hidden z-20">
+                                <div class="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-100 ease-linear" style="width: ${survivalPct}%"></div>
+                            </div>
+                            <div class="absolute top-4 inset-x-0 text-center text-xs font-bold text-white z-30 drop-shadow-md pt-1">SURVIVE: ${mgState.survivalTime.toFixed(1)}s / ${mgState.targetTime}s</div>
+
+                            <!-- Ship -->
+                            <div class="absolute bottom-[10%] -translate-x-1/2 text-4xl filter drop-shadow-[0_0_10px_cyan]" style="left: ${mgState.playerX}%">🚀</div>
+
+                            <!-- Asteroids -->
+                            ${mgState.asteroids.map(ast => `<div class="absolute text-2xl" style="left: ${ast.x}%; top: ${ast.y}%; font-size: ${ast.size}px">🪨</div>`).join('')}
+
+                            <!-- Crash Overlay -->
+                            ${mgState.crashed ? `<div class="absolute inset-0 bg-red-500/50 flex items-center justify-center z-50 animate-pulse"><div class="text-4xl font-black text-white uppercase tracking-widest drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]">CRASH!</div></div>` : ''}
+                        </div>
+                    `;
+
+                    // Event Listeners per movimento (solo se non li abbiamo già attaccati o se è il primo render del loop)
+                    const area = document.getElementById('space-area');
+                    if (area && !area.hasAttribute('data-listening')) {
+                        const moveHandler = (e) => {
+                            if (mgState.crashed) return;
+                            const rect = area.getBoundingClientRect();
+                            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                            let x = clientX - rect.left;
+                            let pct = (x / rect.width) * 100;
+                            // Clamp 5-95%
+                            if (pct < 5) pct = 5;
+                            if (pct > 95) pct = 95;
+                            mgState.playerX = pct;
+                        };
+                        area.addEventListener('mousemove', moveHandler);
+                        area.addEventListener('touchmove', moveHandler, { passive: false });
+                        area.setAttribute('data-listening', 'true');
+                    }
+                };
+
+                const gameLoop = setInterval(() => {
+                    if (!mgState.gameActive || mgState.crashed) return;
+
+                    // Timer
+                    mgState.survivalTime += 0.05; // 50ms interval
+                    if (mgState.survivalTime >= mgState.targetTime) {
+                        clearInterval(gameLoop);
+                        completeMinigame();
+                        return;
+                    }
+
+                    // Spawn Asteroids - Più tempo passa, più frequenti
+                    // Da 800ms iniziali scende verso 200ms
+                    const spawnRate = Math.max(200, 800 - (mgState.survivalTime * 40)); 
+                    if (Date.now() - mgState.lastSpawn > spawnRate) {
+                         mgState.asteroids.push({
+                             x: Math.random() * 90 + 5,
+                             y: -10,
+                             size: Math.random() * 20 + 20, // 20-40px
+                             speed: 1 + (mgState.survivalTime * 0.15) // Velocità aumenta col tempo
+                         });
+                         mgState.lastSpawn = Date.now();
+                    }
+
+                    // Move Asteroids
+                    mgState.asteroids.forEach(ast => {
+                        ast.y += ast.speed;
+                    });
+                    
+                    // Cleanup off-screen
+                    mgState.asteroids = mgState.asteroids.filter(a => a.y < 110);
+
+                    // Collision Detection (Hitbox approssimativa)
+                    // Nave è a Y=90 (bottom 10%), X=playerX
+                    // Asteroidi sono a Y=ast.y, X=ast.x
+                    // Distanza in % (più facile per layout responsive)
+                    const hit = mgState.asteroids.some(ast => {
+                        // Asteroide "colpisce" se è vicino in Y (85-95%) e vicino in X
+                        const yHit = ast.y > 80 && ast.y < 95;
+                        const xHit = Math.abs(ast.x - mgState.playerX) < 8; // Tolleranza orizzontale
+                        return yHit && xHit;
+                    });
+
+                    if (hit) {
+                         mgState.crashed = true;
+                         renderSpace(); // Show crash screen
+                         setGameTimeout(() => {
+                             // Reset
+                             mgState.asteroids = [];
+                             mgState.survivalTime = 0;
+                             mgState.crashed = false;
+                             renderSpace();
+                         }, 1500);
+                    } else {
+                        renderSpace();
+                    }
+
+                }, 50);
+                activeIntervals.push(gameLoop);
+                renderSpace();
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto+Mono:wght@400;700&display=swap');
+        body { background-color: #020617; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); } 20%, 40%, 60%, 80% { transform: translateX(5px); } }
+        .shake-anim { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+    </style>
+</head>
+<body id="app" class="bg-black select-none overflow-hidden text-slate-200">
+    <!-- L'app viene iniettata qui -->
+</body>
+</html>
