@@ -118,7 +118,10 @@
             RPS: 'rps',             
             IMPOSTOR: 'impostor',
             BOARD: 'board',
-            SPACE_DODGE: 'space_dodge' // Nuovo Minigioco
+            SPACE_DODGE: 'space_dodge',
+            FLAPPY_PNG: 'flappy_png',
+            WIRE_MATCH: 'wire_match',
+            ALPHABET: 'alphabet' // *** NUOVO GIOCO ***
         };
 
         // --- INIZIALIZZAZIONE AUTH ---
@@ -452,16 +455,26 @@
                 }
                 mgState = { position: 0, boardMap: types, lastRollTime: 0, diceVal: 1, rolling: false, message: "TIRA IL DADO!" };
             } else if (type === MINIGAMES.SPACE_DODGE) {
-                // *** SPACE DODGE INIT ***
-                mgState = {
-                    playerX: 50, // 0-100%
-                    asteroids: [],
-                    survivalTime: 0,
-                    targetTime: 16,
-                    lastSpawn: 0,
-                    gameActive: true,
-                    crashed: false
-                };
+                mgState = { playerX: 50, asteroids: [], survivalTime: 0, targetTime: 16, lastSpawn: 0, gameActive: true, crashed: false };
+            } else if (type === MINIGAMES.FLAPPY_PNG) {
+                mgState = { birdY: 50, velocity: 0, gravity: 0.25, jump: -5.5, pipes: [], score: 0, targetScore: 10, lastPipeSpawn: 0, gameActive: true, crashed: false };
+            } else if (type === MINIGAMES.WIRE_MATCH) {
+                const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#ec4899', '#06b6d4', '#84cc16', '#71717a'];
+                const left = colors.map((c, i) => ({ id: i, color: c })).sort(() => Math.random() - 0.5);
+                const right = colors.map((c, i) => ({ id: i, color: c })).sort(() => Math.random() - 0.5);
+                mgState = { left, right, connections: [], selectedLeft: null };
+            } else if (type === MINIGAMES.ALPHABET) {
+                // *** ALPHABET INIT ***
+                const letters = [];
+                for(let i=0; i<26; i++) {
+                    letters.push({
+                        char: String.fromCharCode(65+i),
+                        x: Math.random() * 80 + 10,
+                        y: Math.random() * 70 + 20, // Leave space for top bar
+                        collected: false
+                    });
+                }
+                mgState = { letters, nextChar: 65, startTime: Date.now() };
             }
         }
 
@@ -675,6 +688,9 @@
                 else if (gameType === MINIGAMES.IMPOSTOR) title = "TROVA<br>L'INTRUSO";
                 else if (gameType === MINIGAMES.BOARD) title = "SNAKE<br>BOARD";
                 else if (gameType === MINIGAMES.SPACE_DODGE) title = "SPACE<br>DODGE";
+                else if (gameType === MINIGAMES.FLAPPY_PNG) title = "FLAPPY<br>PNG";
+                else if (gameType === MINIGAMES.WIRE_MATCH) title = "COLLEGA<br>I CAVI";
+                else if (gameType === MINIGAMES.ALPHABET) title = "ORDINA<br>ALFABETO";
                 
                 contentHtml = `<div class="text-center animate-fadeIn"><h2 class="text-xl text-cyan-400 font-black tracking-[0.2em] mb-4 uppercase">Next Challenge</h2><h1 class="text-5xl md:text-7xl font-black text-white mb-8 uppercase italic tracking-tighter drop-shadow-lg">${title}</h1><div class="text-9xl font-mono text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 font-black scale-110">${introTimer}</div></div>`;
                 mainArea.innerHTML = contentHtml;
@@ -828,113 +844,81 @@
                 const timerInt = setInterval(() => { if (!mgState.rolling) renderBoard(); }, 500); activeIntervals.push(timerInt); renderBoard();
 
             } else if (type === MINIGAMES.SPACE_DODGE) {
-                // *** SPACE DODGE LOGIC ***
-                const renderSpace = () => {
-                    // Calcolo % sopravvivenza
-                    const survivalPct = Math.min(100, (mgState.survivalTime / mgState.targetTime) * 100).toFixed(1);
+                // ... (Space Dodge Logic invariata) ...
+                const renderSpace = () => { const survivalPct = Math.min(100, (mgState.survivalTime / mgState.targetTime) * 100).toFixed(1); container.innerHTML = `<div class="relative w-full h-full max-w-lg bg-slate-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="space-area"><div class="absolute inset-0 opacity-50 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] animate-[pulse_4s_infinite]"></div><div class="absolute top-4 left-4 right-4 h-6 bg-slate-800 rounded-full border border-slate-600 overflow-hidden z-20"><div class="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-100 ease-linear" style="width: ${survivalPct}%"></div></div><div class="absolute top-4 inset-x-0 text-center text-xs font-bold text-white z-30 drop-shadow-md pt-1">SURVIVE: ${mgState.survivalTime.toFixed(1)}s / ${mgState.targetTime}s</div><div class="absolute bottom-[10%] -translate-x-1/2 text-4xl filter drop-shadow-[0_0_10px_cyan]" style="left: ${mgState.playerX}%">🚀</div>${mgState.asteroids.map(ast => `<div class="absolute text-2xl" style="left: ${ast.x}%; top: ${ast.y}%; font-size: ${ast.size}px">🪨</div>`).join('')}${mgState.crashed ? `<div class="absolute inset-0 bg-red-500/50 flex items-center justify-center z-50 animate-pulse"><div class="text-4xl font-black text-white uppercase tracking-widest drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]">CRASH!</div></div>` : ''}</div>`; const area = document.getElementById('space-area'); if (area && !area.hasAttribute('data-listening')) { const moveHandler = (e) => { if (mgState.crashed) return; const rect = area.getBoundingClientRect(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; let pct = ((clientX - rect.left) / rect.width) * 100; mgState.playerX = Math.max(5, Math.min(95, pct)); }; area.addEventListener('mousemove', moveHandler); area.addEventListener('touchmove', moveHandler, { passive: false }); area.setAttribute('data-listening', 'true'); } };
+                const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.survivalTime += 0.05; if (mgState.survivalTime >= mgState.targetTime) { clearInterval(gameLoop); completeMinigame(); return; } const spawnRate = Math.max(200, 800 - (mgState.survivalTime * 40)); if (Date.now() - mgState.lastSpawn > spawnRate) { mgState.asteroids.push({ x: Math.random() * 90 + 5, y: -10, size: Math.random() * 20 + 20, speed: 1 + (mgState.survivalTime * 0.15) }); mgState.lastSpawn = Date.now(); } mgState.asteroids.forEach(ast => ast.y += ast.speed); mgState.asteroids = mgState.asteroids.filter(a => a.y < 110); const hit = mgState.asteroids.some(ast => ast.y > 80 && ast.y < 95 && Math.abs(ast.x - mgState.playerX) < 8); if (hit) { mgState.crashed = true; renderSpace(); setGameTimeout(() => { mgState.asteroids = []; mgState.survivalTime = 0; mgState.crashed = false; renderSpace(); }, 1500); } else renderSpace(); }, 50); activeIntervals.push(gameLoop); renderSpace();
+
+            } else if (type === MINIGAMES.FLAPPY_PNG) {
+                // ... (Flappy PNG Logic invariata) ...
+                const renderFlappy = () => { container.innerHTML = `<div class="relative w-full h-full max-w-lg bg-sky-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="flappy-area"><div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cloudy-day.png')]"></div><div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30"><div class="bg-black/60 px-4 py-2 rounded-xl border border-white/20 font-black text-2xl text-white shadow-xl">SCORE: ${mgState.score} / ${mgState.targetScore}</div></div><div id="flappy-bird" class="absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 z-20 transition-transform duration-100" style="left: 30%; top: ${mgState.birdY}%; transform: translate(-50%, -50%) rotate(${mgState.velocity * 3}deg)"><img src="${CHARACTERS[myUserData.charIndex].img}" class="w-full h-full object-cover rounded-full border-2 border-white shadow-2xl"></div>${mgState.pipes.map(p => `<div class="absolute bg-gradient-to-b from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: 0; width: 60px; height: ${p.gapTop}%;"><div class="absolute bottom-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div><div class="absolute bg-gradient-to-t from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: ${p.gapTop + 30}%; width: 60px; height: ${100 - (p.gapTop + 30)}%;"><div class="absolute top-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div>`).join('')}${mgState.crashed ? `<div class="absolute inset-0 bg-red-600/40 flex items-center justify-center z-50 animate-pulse"><div class="text-5xl font-black text-white uppercase italic drop-shadow-2xl">COLLISION!</div></div>` : ''}</div>`; const area = document.getElementById('flappy-area'); if (area && !area.hasAttribute('data-listening')) { const jumpHandler = (e) => { if (mgState.crashed || !mgState.gameActive) return; e.preventDefault(); mgState.velocity = mgState.jump; playTone(400, 0.1); }; area.addEventListener('mousedown', jumpHandler); area.addEventListener('touchstart', jumpHandler, { passive: false }); area.setAttribute('data-listening', 'true'); } };
+                const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.velocity += mgState.gravity; mgState.birdY += mgState.velocity * 0.4; if (mgState.birdY > 100 || mgState.birdY < 0) { triggerCrash(); return; } if (Date.now() - mgState.lastPipeSpawn > 1800) { mgState.pipes.push({ x: 110, gapTop: 15 + Math.random() * 45, passed: false }); mgState.lastPipeSpawn = Date.now(); } mgState.pipes.forEach((p) => { p.x -= 0.8; if (30 + 4 > p.x && 30 - 4 < p.x + 12) { if (mgState.birdY - 4 < p.gapTop || mgState.birdY + 4 > p.gapTop + 30) triggerCrash(); } if (!p.passed && p.x < 30) { p.passed = true; mgState.score++; playTone(800, 0.2); if (mgState.score >= mgState.targetScore) { mgState.gameActive = false; completeMinigame(); } } }); mgState.pipes = mgState.pipes.filter(p => p.x > -20); renderFlappy(); }, 20);
+                function triggerCrash() { mgState.crashed = true; playTone(150, 0.4); renderFlappy(); setGameTimeout(() => { mgState.birdY = 50; mgState.velocity = 0; mgState.pipes = []; mgState.score = 0; mgState.crashed = false; mgState.lastPipeSpawn = Date.now(); renderFlappy(); }, 1200); }
+                activeIntervals.push(gameLoop); renderFlappy();
+
+            } else if (type === MINIGAMES.WIRE_MATCH) {
+                // ... (Wire Match Logic invariata) ...
+                const renderWires = () => { const connectionsHtml = mgState.connections.map(conn => { const from = document.getElementById(`left-${conn.leftId}`); const to = document.getElementById(`right-${conn.rightId}`); if (!from || !to) return ''; const fRect = from.getBoundingClientRect(); const tRect = to.getBoundingClientRect(); const area = document.getElementById('wire-area').getBoundingClientRect(); const x1 = fRect.left + fRect.width/2 - area.left; const y1 = fRect.top + fRect.height/2 - area.top; const x2 = tRect.left + tRect.width/2 - area.left; const y2 = tRect.top + tRect.height/2 - area.top; return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${conn.color}" stroke-width="8" stroke-linecap="round" />`; }).join(''); container.innerHTML = `<div class="relative w-full h-full max-w-lg bg-slate-900 rounded-3xl border-4 border-slate-700 p-8 flex justify-between items-center shadow-2xl overflow-hidden" id="wire-area"><svg class="absolute inset-0 w-full h-full pointer-events-none z-10">${connectionsHtml}</svg><div class="flex flex-col justify-between h-full gap-2 z-20">${mgState.left.map(item => { const isConnected = mgState.connections.some(c => c.leftId === item.id); const isSelected = mgState.selectedLeft === item.id; return `<div id="left-${item.id}" onclick="selectLeft(${item.id})" class="w-12 h-12 rounded-lg flex items-center justify-center cursor-pointer transition-all border-4 ${isConnected ? 'border-green-500 scale-90' : isSelected ? 'border-white scale-110 shadow-[0_0_15px_white]' : 'border-transparent'}" style="background-color: ${item.color}"><div class="w-4 h-1 bg-black/30 rounded-full"></div></div>`; }).join('')}</div><div class="flex flex-col justify-between h-full gap-2 z-20">${mgState.right.map(item => { const isConnected = mgState.connections.some(c => c.rightId === item.id); return `<div id="right-${item.id}" onclick="selectRight(${item.id})" class="w-12 h-12 rounded-lg flex items-center justify-center cursor-pointer transition-all border-4 ${isConnected ? 'border-green-500 scale-90' : 'border-transparent'}" style="background-color: ${item.color}"><div class="w-4 h-1 bg-black/30 rounded-full"></div></div>`; }).join('')}</div></div>`; };
+                window.selectLeft = (id) => { if (mgState.connections.some(c => c.leftId === id)) return; mgState.selectedLeft = id; renderWires(); playTone(400, 0.05); };
+                window.selectRight = (id) => { if (mgState.selectedLeft === null || mgState.connections.some(c => c.rightId === id)) return; if (mgState.selectedLeft === id) { const color = mgState.left.find(l => l.id === id).color; mgState.connections.push({ leftId: id, rightId: id, color: color }); mgState.selectedLeft = null; playTone(800, 0.1); renderWires(); if (mgState.connections.length === 10) setGameTimeout(completeMinigame, 500); } else { mgState.selectedLeft = null; playTone(200, 0.1); renderWires(); } };
+                setGameTimeout(renderWires, 50);
+
+            } else if (type === MINIGAMES.ALPHABET) {
+                // *** ALPHABET GAME LOGIC ***
+                const renderAlpha = () => {
+                    const collectedStr = mgState.letters.filter(l => l.collected).map(l => l.char).join(' ');
+                    const nextCharStr = String.fromCharCode(mgState.nextChar);
                     
                     container.innerHTML = `
-                        <div class="relative w-full h-full max-w-lg bg-slate-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="space-area">
-                            <!-- Background Stars -->
-                            <div class="absolute inset-0 opacity-50 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] animate-[pulse_4s_infinite]"></div>
-                            
-                            <!-- Timer Bar -->
-                            <div class="absolute top-4 left-4 right-4 h-6 bg-slate-800 rounded-full border border-slate-600 overflow-hidden z-20">
-                                <div class="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-100 ease-linear" style="width: ${survivalPct}%"></div>
+                        <div id="alpha-board" class="relative w-full h-full max-w-4xl bg-slate-900 rounded-xl overflow-hidden border border-slate-700 select-none">
+                            <!-- Top Status -->
+                            <div class="absolute top-0 inset-x-0 h-16 bg-slate-800 border-b border-slate-600 flex items-center px-4 overflow-hidden z-20 shadow-md">
+                                <div class="text-green-400 font-mono font-bold text-lg md:text-xl truncate tracking-widest flex-1 mr-4">${collectedStr}</div>
+                                <div class="flex items-center gap-2 bg-slate-700 px-3 py-1 rounded-lg border border-slate-600">
+                                    <span class="text-slate-400 text-[10px] font-bold uppercase">TROVA</span>
+                                    <span class="text-white text-2xl font-black animate-pulse text-cyan-400">${nextCharStr}</span>
+                                </div>
                             </div>
-                            <div class="absolute top-4 inset-x-0 text-center text-xs font-bold text-white z-30 drop-shadow-md pt-1">SURVIVE: ${mgState.survivalTime.toFixed(1)}s / ${mgState.targetTime}s</div>
-
-                            <!-- Ship -->
-                            <div class="absolute bottom-[10%] -translate-x-1/2 text-4xl filter drop-shadow-[0_0_10px_cyan]" style="left: ${mgState.playerX}%">🚀</div>
-
-                            <!-- Asteroids -->
-                            ${mgState.asteroids.map(ast => `<div class="absolute text-2xl" style="left: ${ast.x}%; top: ${ast.y}%; font-size: ${ast.size}px">🪨</div>`).join('')}
-
-                            <!-- Crash Overlay -->
-                            ${mgState.crashed ? `<div class="absolute inset-0 bg-red-500/50 flex items-center justify-center z-50 animate-pulse"><div class="text-4xl font-black text-white uppercase tracking-widest drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]">CRASH!</div></div>` : ''}
+                            
+                            <!-- Letters Field -->
+                            <div class="absolute inset-0 top-16 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
+                                ${mgState.letters.map(l => !l.collected ? `
+                                    <div onclick="clickLetter('${l.char}')" 
+                                         class="absolute w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-white font-black text-2xl hover:border-white hover:bg-slate-700 hover:scale-110 hover:z-50 active:scale-95 transition-all cursor-pointer shadow-lg select-none"
+                                         style="left: ${l.x}%; top: ${l.y}%; transform: translate(-50%, -50%);">
+                                        ${l.char}
+                                    </div>
+                                ` : '').join('')}
+                            </div>
                         </div>
                     `;
-
-                    // Event Listeners per movimento (solo se non li abbiamo già attaccati o se è il primo render del loop)
-                    const area = document.getElementById('space-area');
-                    if (area && !area.hasAttribute('data-listening')) {
-                        const moveHandler = (e) => {
-                            if (mgState.crashed) return;
-                            const rect = area.getBoundingClientRect();
-                            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                            let x = clientX - rect.left;
-                            let pct = (x / rect.width) * 100;
-                            // Clamp 5-95%
-                            if (pct < 5) pct = 5;
-                            if (pct > 95) pct = 95;
-                            mgState.playerX = pct;
-                        };
-                        area.addEventListener('mousemove', moveHandler);
-                        area.addEventListener('touchmove', moveHandler, { passive: false });
-                        area.setAttribute('data-listening', 'true');
-                    }
                 };
 
-                const gameLoop = setInterval(() => {
-                    if (!mgState.gameActive || mgState.crashed) return;
-
-                    // Timer
-                    mgState.survivalTime += 0.05; // 50ms interval
-                    if (mgState.survivalTime >= mgState.targetTime) {
-                        clearInterval(gameLoop);
-                        completeMinigame();
-                        return;
-                    }
-
-                    // Spawn Asteroids - Più tempo passa, più frequenti
-                    // Da 800ms iniziali scende verso 200ms
-                    const spawnRate = Math.max(200, 800 - (mgState.survivalTime * 40)); 
-                    if (Date.now() - mgState.lastSpawn > spawnRate) {
-                         mgState.asteroids.push({
-                             x: Math.random() * 90 + 5,
-                             y: -10,
-                             size: Math.random() * 20 + 20, // 20-40px
-                             speed: 1 + (mgState.survivalTime * 0.15) // Velocità aumenta col tempo
-                         });
-                         mgState.lastSpawn = Date.now();
-                    }
-
-                    // Move Asteroids
-                    mgState.asteroids.forEach(ast => {
-                        ast.y += ast.speed;
-                    });
-                    
-                    // Cleanup off-screen
-                    mgState.asteroids = mgState.asteroids.filter(a => a.y < 110);
-
-                    // Collision Detection (Hitbox approssimativa)
-                    // Nave è a Y=90 (bottom 10%), X=playerX
-                    // Asteroidi sono a Y=ast.y, X=ast.x
-                    // Distanza in % (più facile per layout responsive)
-                    const hit = mgState.asteroids.some(ast => {
-                        // Asteroide "colpisce" se è vicino in Y (85-95%) e vicino in X
-                        const yHit = ast.y > 80 && ast.y < 95;
-                        const xHit = Math.abs(ast.x - mgState.playerX) < 8; // Tolleranza orizzontale
-                        return yHit && xHit;
-                    });
-
-                    if (hit) {
-                         mgState.crashed = true;
-                         renderSpace(); // Show crash screen
-                         setGameTimeout(() => {
-                             // Reset
-                             mgState.asteroids = [];
-                             mgState.survivalTime = 0;
-                             mgState.crashed = false;
-                             renderSpace();
-                         }, 1500);
+                window.clickLetter = (char) => {
+                    const expected = String.fromCharCode(mgState.nextChar);
+                    if (char === expected) {
+                        const letterObj = mgState.letters.find(l => l.char === char);
+                        if(letterObj) letterObj.collected = true;
+                        
+                        // Audio pitch crescente
+                        playTone(300 + (mgState.nextChar - 65) * 30, 0.1); 
+                        
+                        mgState.nextChar++;
+                        renderAlpha();
+                        
+                        if (mgState.nextChar > 90) { // Dopo la 'Z' (90)
+                             completeMinigame();
+                        }
                     } else {
-                        renderSpace();
+                        // Errore visivo e sonoro
+                         playTone(100, 0.2); // Basso
+                         const board = document.getElementById('alpha-board');
+                         if(board) {
+                             board.classList.add('bg-red-900');
+                             setTimeout(() => board.classList.remove('bg-red-900'), 150);
+                         }
                     }
-
-                }, 50);
-                activeIntervals.push(gameLoop);
-                renderSpace();
+                };
+                renderAlpha();
             }
         }
     </script>
