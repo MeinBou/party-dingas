@@ -849,11 +849,123 @@
                 const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.survivalTime += 0.05; if (mgState.survivalTime >= mgState.targetTime) { clearInterval(gameLoop); completeMinigame(); return; } const spawnRate = Math.max(200, 800 - (mgState.survivalTime * 40)); if (Date.now() - mgState.lastSpawn > spawnRate) { mgState.asteroids.push({ x: Math.random() * 90 + 5, y: -10, size: Math.random() * 20 + 20, speed: 1 + (mgState.survivalTime * 0.15) }); mgState.lastSpawn = Date.now(); } mgState.asteroids.forEach(ast => ast.y += ast.speed); mgState.asteroids = mgState.asteroids.filter(a => a.y < 110); const hit = mgState.asteroids.some(ast => ast.y > 80 && ast.y < 95 && Math.abs(ast.x - mgState.playerX) < 8); if (hit) { mgState.crashed = true; renderSpace(); setGameTimeout(() => { mgState.asteroids = []; mgState.survivalTime = 0; mgState.crashed = false; renderSpace(); }, 1500); } else renderSpace(); }, 50); activeIntervals.push(gameLoop); renderSpace();
 
             } else if (type === MINIGAMES.FLAPPY_PNG) {
-                // ... (Flappy PNG Logic invariata) ...
-                const renderFlappy = () => { container.innerHTML = `<div class="relative w-full h-full max-w-lg bg-sky-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="flappy-area"><div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cloudy-day.png')]"></div><div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30"><div class="bg-black/60 px-4 py-2 rounded-xl border border-white/20 font-black text-2xl text-white shadow-xl">SCORE: ${mgState.score} / ${mgState.targetScore}</div></div><div id="flappy-bird" class="absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 z-20 transition-transform duration-100" style="left: 30%; top: ${mgState.birdY}%; transform: translate(-50%, -50%) rotate(${mgState.velocity * 3}deg)"><img src="${CHARACTERS[myUserData.charIndex].img}" class="w-full h-full object-cover rounded-full border-2 border-white shadow-2xl"></div>${mgState.pipes.map(p => `<div class="absolute bg-gradient-to-b from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: 0; width: 60px; height: ${p.gapTop}%;"><div class="absolute bottom-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div><div class="absolute bg-gradient-to-t from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: ${p.gapTop + 30}%; width: 60px; height: ${100 - (p.gapTop + 30)}%;"><div class="absolute top-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div>`).join('')}${mgState.crashed ? `<div class="absolute inset-0 bg-red-600/40 flex items-center justify-center z-50 animate-pulse"><div class="text-5xl font-black text-white uppercase italic drop-shadow-2xl">COLLISION!</div></div>` : ''}</div>`; const area = document.getElementById('flappy-area'); if (area && !area.hasAttribute('data-listening')) { const jumpHandler = (e) => { if (mgState.crashed || !mgState.gameActive) return; e.preventDefault(); mgState.velocity = mgState.jump; playTone(400, 0.1); }; area.addEventListener('mousedown', jumpHandler); area.addEventListener('touchstart', jumpHandler, { passive: false }); area.setAttribute('data-listening', 'true'); } };
-                const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.velocity += mgState.gravity; mgState.birdY += mgState.velocity * 0.4; if (mgState.birdY > 100 || mgState.birdY < 0) { triggerCrash(); return; } if (Date.now() - mgState.lastPipeSpawn > 1800) { mgState.pipes.push({ x: 110, gapTop: 15 + Math.random() * 45, passed: false }); mgState.lastPipeSpawn = Date.now(); } mgState.pipes.forEach((p) => { p.x -= 0.8; if (30 + 4 > p.x && 30 - 4 < p.x + 12) { if (mgState.birdY - 4 < p.gapTop || mgState.birdY + 4 > p.gapTop + 30) triggerCrash(); } if (!p.passed && p.x < 30) { p.passed = true; mgState.score++; playTone(800, 0.2); if (mgState.score >= mgState.targetScore) { mgState.gameActive = false; completeMinigame(); } } }); mgState.pipes = mgState.pipes.filter(p => p.x > -20); renderFlappy(); }, 20);
-                function triggerCrash() { mgState.crashed = true; playTone(150, 0.4); renderFlappy(); setGameTimeout(() => { mgState.birdY = 50; mgState.velocity = 0; mgState.pipes = []; mgState.score = 0; mgState.crashed = false; mgState.lastPipeSpawn = Date.now(); renderFlappy(); }, 1200); }
-                activeIntervals.push(gameLoop); renderFlappy();
+                // SETUP DOM ONCE
+                const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+                const charImg = CHARACTERS[myPlayer ? myPlayer.charIndex : 0].img;
+                
+                container.innerHTML = `
+                    <div class="relative w-full h-full max-w-lg bg-sky-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="flappy-area">
+                        <div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cloudy-day.png')]"></div>
+                        <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30">
+                            <div id="flappy-score" class="bg-black/60 px-4 py-2 rounded-xl border border-white/20 font-black text-2xl text-white shadow-xl">SCORE: 0 / ${mgState.targetScore}</div>
+                        </div>
+                        <div id="flappy-bird" class="absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 z-20 transition-transform duration-100" style="left: 30%; top: 50%;">
+                            <img src="${charImg}" class="w-full h-full object-cover rounded-full border-2 border-white shadow-2xl">
+                        </div>
+                        <div id="flappy-pipes"></div>
+                        <div id="flappy-crash" class="hidden absolute inset-0 bg-red-600/40 flex items-center justify-center z-50 animate-pulse">
+                            <div class="text-5xl font-black text-white uppercase italic drop-shadow-2xl">COLLISION!</div>
+                        </div>
+                    </div>`;
+
+                const birdEl = document.getElementById('flappy-bird');
+                const pipesContainer = document.getElementById('flappy-pipes');
+                const scoreEl = document.getElementById('flappy-score');
+                const crashEl = document.getElementById('flappy-crash');
+                const area = document.getElementById('flappy-area');
+
+                // HANDLERS
+                const jumpHandler = (e) => {
+                    if (mgState.crashed || !mgState.gameActive) return;
+                    if(e.cancelable) e.preventDefault(); // Important for touch
+                    mgState.velocity = mgState.jump;
+                    playTone(400, 0.1);
+                };
+                
+                // Add listeners directly (no data-listening check needed since we init once)
+                area.addEventListener('mousedown', jumpHandler);
+                area.addEventListener('touchstart', jumpHandler, { passive: false });
+                
+                // RENDER LOOP FUNCTION
+                const updateVisuals = () => {
+                     // Optimize: Only update if changed? No, 60fps is fine for transform/style updates.
+                     if(birdEl) {
+                         birdEl.style.top = mgState.birdY + '%';
+                         birdEl.style.transform = `translate(-50%, -50%) rotate(${mgState.velocity * 3}deg)`;
+                     }
+                     if(scoreEl) scoreEl.innerText = `SCORE: ${mgState.score} / ${mgState.targetScore}`;
+                     
+                     // Render Pipes - still using innerHTML for pipes container is okay-ish, or could use DOM diffing, 
+                     // but let's stick to string injection for pipes only (much smaller payload than full app).
+                     if(pipesContainer) {
+                         pipesContainer.innerHTML = mgState.pipes.map(p => `
+                            <div class="absolute bg-gradient-to-b from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: 0; width: 60px; height: ${p.gapTop}%;">
+                                <div class="absolute bottom-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div>
+                            </div>
+                            <div class="absolute bg-gradient-to-t from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: ${p.gapTop + 30}%; width: 60px; height: ${100 - (p.gapTop + 30)}%;">
+                                <div class="absolute top-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div>
+                            </div>
+                         `).join('');
+                     }
+                     
+                     if(crashEl) {
+                         if(mgState.crashed) crashEl.classList.remove('hidden');
+                         else crashEl.classList.add('hidden');
+                     }
+                };
+
+                const gameLoop = setInterval(() => {
+                     if (!mgState.gameActive || mgState.crashed) return; 
+                     // ... physics logic ...
+                     mgState.velocity += mgState.gravity; 
+                     mgState.birdY += mgState.velocity * 0.4;
+                     
+                     if (mgState.birdY > 100 || mgState.birdY < 0) { triggerCrash(); return; } 
+                     
+                     if (Date.now() - mgState.lastPipeSpawn > 1800) { 
+                        mgState.pipes.push({ x: 110, gapTop: 15 + Math.random() * 45, passed: false }); 
+                        mgState.lastPipeSpawn = Date.now(); 
+                     } 
+                     
+                     mgState.pipes.forEach((p) => { 
+                        p.x -= 0.8; 
+                        if (30 + 4 > p.x && 30 - 4 < p.x + 12) { 
+                            if (mgState.birdY - 4 < p.gapTop || mgState.birdY + 4 > p.gapTop + 30) triggerCrash(); 
+                        } 
+                        if (!p.passed && p.x < 30) { 
+                            p.passed = true; 
+                            mgState.score++; 
+                            playTone(800, 0.2); 
+                            if (mgState.score >= mgState.targetScore) { 
+                                mgState.gameActive = false; 
+                                completeMinigame(); 
+                            } 
+                        } 
+                     }); 
+                     mgState.pipes = mgState.pipes.filter(p => p.x > -20);
+                     
+                     updateVisuals(); 
+                }, 20);
+                
+                // Collision Trigger
+                function triggerCrash() {
+                     mgState.crashed = true;
+                     playTone(150, 0.4);
+                     updateVisuals(); // Force update to show crash screen
+                     setGameTimeout(() => {
+                         mgState.birdY = 50;
+                         mgState.velocity = 0;
+                         mgState.pipes = [];
+                         mgState.score = 0;
+                         mgState.crashed = false;
+                         mgState.lastPipeSpawn = Date.now();
+                         // No need to call renderFlappy, just updateVisuals in next loop
+                     }, 1200);
+                }
+                
+                activeIntervals.push(gameLoop);
+                // Initial draw
+                updateVisuals();
 
             } else if (type === MINIGAMES.WIRE_MATCH) {
                 // ... (Wire Match Logic invariata) ...
