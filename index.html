@@ -457,7 +457,7 @@
             } else if (type === MINIGAMES.SPACE_DODGE) {
                 mgState = { playerX: 50, asteroids: [], survivalTime: 0, targetTime: 16, lastSpawn: 0, gameActive: true, crashed: false };
             } else if (type === MINIGAMES.FLAPPY_PNG) {
-                mgState = { birdY: 50, velocity: 0, gravity: 0.25, jump: -5.5, pipes: [], score: 0, targetScore: 10, lastPipeSpawn: 0, gameActive: true, crashed: false };
+                mgState = { birdY: 50, velocity: 0, gravity: 0.25, jump: -4, pipes: [], score: 0, targetScore: 10, lastPipeSpawn: 0, gameActive: true, crashed: false };
             } else if (type === MINIGAMES.WIRE_MATCH) {
                 const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#ec4899', '#06b6d4', '#84cc16', '#71717a'];
                 const left = colors.map((c, i) => ({ id: i, color: c })).sort(() => Math.random() - 0.5);
