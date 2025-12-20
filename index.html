@@ -121,7 +121,9 @@
             SPACE_DODGE: 'space_dodge',
             FLAPPY_PNG: 'flappy_png',
             WIRE_MATCH: 'wire_match',
-            ALPHABET: 'alphabet' // *** NUOVO GIOCO ***
+            ALPHABET: 'alphabet',
+            GUESS_TYPE: 'guess_type',
+            UNLOCK_CODE: 'unlock_code' // *** NUOVO GIOCO ***
         };
 
         // --- INIZIALIZZAZIONE AUTH ---
@@ -475,6 +477,70 @@
                     });
                 }
                 mgState = { letters, nextChar: 65, startTime: Date.now() };
+            } else if (type === MINIGAMES.GUESS_TYPE) {
+                // *** GUESS TYPE INIT ***
+                const IMAGES = [
+                    { type: '🪨', img: 'https://i.pinimg.com/736x/a3/e9/29/a3e929b1a1675dfedde59af80e7cac5d.jpg' },
+                    { type: '⚡️', img: 'https://i.pinimg.com/736x/d6/7f/04/d67f04d1673a12a929993f080ec25c77.jpg' },
+                    { type: '🔥', img: 'https://i.pinimg.com/1200x/25/48/a9/2548a95c3476fc0b073331a4d753306e.jpg' },
+                    { type: '👻', img: 'https://i.pinimg.com/736x/0a/c0/fc/0ac0fced9211650b98af8f47cbcefe78.jpg' },
+                    { type: '🌿', img: 'https://i.pinimg.com/736x/e9/4b/25/e94b25c56c8ea06cc44a5ba7894ba218.jpg' },
+                    { type: '🌍', img: 'https://i.pinimg.com/736x/73/d9/08/73d9080444f329a2440b135b33772449.jpg' },
+                    { type: '🌪️', img: 'https://i.pinimg.com/736x/f9/45/8a/f9458a09b841d4dd540ae21d3e36b277.jpg' },
+                    { type: '🌪️', img: 'https://i.pinimg.com/736x/b0/3a/ee/b03aee453747e3456fd19947ce1d79f8.jpg' },
+                    { type: '👻', img: 'https://i.pinimg.com/736x/ca/50/88/ca5088a94a2723ffecf6a6c3b6f1cc5a.jpg' },
+                    { type: '⚡️', img: 'https://i.pinimg.com/736x/95/34/5d/95345d031a496ef3f658b237f9ca2ed1.jpg' },
+                    { type: '🌍', img: 'https://i.pinimg.com/1200x/ed/06/80/ed0680d467c7653f626f9b146e2713de.jpg' },
+                    { type: '🪨', img: 'https://i.pinimg.com/1200x/64/b5/57/64b557af85167a1cc1164db13c61785f.jpg' },
+                    { type: '🔥', img: 'https://i.pinimg.com/736x/ec/a0/22/eca022d42218a7a458b6c583286a6e0a.jpg' },
+                    { type: '🌿', img: 'https://i.pinimg.com/1200x/7e/fa/99/7efa99e2dc81139de1d530765a99c663.jpg' },
+                    { type: '💧', img: 'https://i.pinimg.com/736x/c8/4d/9a/c84d9ac5a5b05b580064db7cc74500b1.jpg' },
+                    { type: '💧', img: 'https://i.pinimg.com/1200x/d8/02/d2/d802d255fc1ad81c9ccf99901c21b837.jpg' }
+                ];
+                const shuffled = [...IMAGES].sort(() => 0.5 - Math.random());
+                mgState = {
+                    round: 0,
+                    questions: shuffled.slice(0, 4),
+                    cooldown: false,
+                    cooldownTime: 0
+                };
+            } else if (type === MINIGAMES.UNLOCK_CODE) {
+                // *** UNLOCK CODE INIT ***
+                const generatePattern = (length) => {
+                    const adjacency = {
+                        0: [1, 3, 4], 1: [0, 2, 3, 4, 5], 2: [1, 4, 5],
+                        3: [0, 1, 4, 6, 7], 4: [0, 1, 2, 3, 5, 6, 7, 8], 5: [1, 2, 4, 7, 8],
+                        6: [3, 4, 7], 7: [3, 4, 5, 6, 8], 8: [4, 5, 7]
+                    };
+                    const path = [Math.floor(Math.random() * 9)];
+                    while(path.length < length) {
+                        const current = path[path.length - 1];
+                        const neighbors = adjacency[current].filter(n => !path.includes(n));
+                        if(neighbors.length === 0) return generatePattern(length); // Retry if stuck
+                        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                        path.push(next);
+                    }
+                    return path;
+                };
+
+                const levels = [
+                    { len: 4, showTime: 2000 },
+                    { len: 5, showTime: 1800 },
+                    { len: 6, showTime: 1500 },
+                    { len: 7, showTime: 1200 }
+                ];
+                
+                const patterns = levels.map(l => generatePattern(l.len));
+                
+                mgState = {
+                    round: 0,
+                    levels: levels,
+                    patterns: patterns,
+                    userPath: [],
+                    status: 'SHOWING', // SHOWING, WAITING, DRAWING, CHECKING, CORRECT, WRONG
+                    statusText: 'MEMORIZZA!',
+                    lastPos: null
+                };
             }
         }
 
@@ -691,6 +757,8 @@
                 else if (gameType === MINIGAMES.FLAPPY_PNG) title = "FLAPPY<br>PNG";
                 else if (gameType === MINIGAMES.WIRE_MATCH) title = "COLLEGA<br>I CAVI";
                 else if (gameType === MINIGAMES.ALPHABET) title = "ORDINA<br>ALFABETO";
+                else if (gameType === MINIGAMES.GUESS_TYPE) title = "INDOVINA<br>IL TIPO";
+                else if (gameType === MINIGAMES.UNLOCK_CODE) title = "CODICE<br>SBLOCCO";
                 
                 contentHtml = `<div class="text-center animate-fadeIn"><h2 class="text-xl text-cyan-400 font-black tracking-[0.2em] mb-4 uppercase">Next Challenge</h2><h1 class="text-5xl md:text-7xl font-black text-white mb-8 uppercase italic tracking-tighter drop-shadow-lg">${title}</h1><div class="text-9xl font-mono text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 font-black scale-110">${introTimer}</div></div>`;
                 mainArea.innerHTML = contentHtml;
@@ -849,123 +917,16 @@
                 const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.survivalTime += 0.05; if (mgState.survivalTime >= mgState.targetTime) { clearInterval(gameLoop); completeMinigame(); return; } const spawnRate = Math.max(200, 800 - (mgState.survivalTime * 40)); if (Date.now() - mgState.lastSpawn > spawnRate) { mgState.asteroids.push({ x: Math.random() * 90 + 5, y: -10, size: Math.random() * 20 + 20, speed: 1 + (mgState.survivalTime * 0.15) }); mgState.lastSpawn = Date.now(); } mgState.asteroids.forEach(ast => ast.y += ast.speed); mgState.asteroids = mgState.asteroids.filter(a => a.y < 110); const hit = mgState.asteroids.some(ast => ast.y > 80 && ast.y < 95 && Math.abs(ast.x - mgState.playerX) < 8); if (hit) { mgState.crashed = true; renderSpace(); setGameTimeout(() => { mgState.asteroids = []; mgState.survivalTime = 0; mgState.crashed = false; renderSpace(); }, 1500); } else renderSpace(); }, 50); activeIntervals.push(gameLoop); renderSpace();
 
             } else if (type === MINIGAMES.FLAPPY_PNG) {
-                // SETUP DOM ONCE
+                // ... (Flappy Logic invariata) ...
                 const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
                 const charImg = CHARACTERS[myPlayer ? myPlayer.charIndex : 0].img;
-                
-                container.innerHTML = `
-                    <div class="relative w-full h-full max-w-lg bg-sky-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="flappy-area">
-                        <div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cloudy-day.png')]"></div>
-                        <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30">
-                            <div id="flappy-score" class="bg-black/60 px-4 py-2 rounded-xl border border-white/20 font-black text-2xl text-white shadow-xl">SCORE: 0 / ${mgState.targetScore}</div>
-                        </div>
-                        <div id="flappy-bird" class="absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 z-20 transition-transform duration-100" style="left: 30%; top: 50%;">
-                            <img src="${charImg}" class="w-full h-full object-cover rounded-full border-2 border-white shadow-2xl">
-                        </div>
-                        <div id="flappy-pipes"></div>
-                        <div id="flappy-crash" class="hidden absolute inset-0 bg-red-600/40 flex items-center justify-center z-50 animate-pulse">
-                            <div class="text-5xl font-black text-white uppercase italic drop-shadow-2xl">COLLISION!</div>
-                        </div>
-                    </div>`;
-
-                const birdEl = document.getElementById('flappy-bird');
-                const pipesContainer = document.getElementById('flappy-pipes');
-                const scoreEl = document.getElementById('flappy-score');
-                const crashEl = document.getElementById('flappy-crash');
-                const area = document.getElementById('flappy-area');
-
-                // HANDLERS
-                const jumpHandler = (e) => {
-                    if (mgState.crashed || !mgState.gameActive) return;
-                    if(e.cancelable) e.preventDefault(); // Important for touch
-                    mgState.velocity = mgState.jump;
-                    playTone(400, 0.1);
-                };
-                
-                // Add listeners directly (no data-listening check needed since we init once)
-                area.addEventListener('mousedown', jumpHandler);
-                area.addEventListener('touchstart', jumpHandler, { passive: false });
-                
-                // RENDER LOOP FUNCTION
-                const updateVisuals = () => {
-                     // Optimize: Only update if changed? No, 60fps is fine for transform/style updates.
-                     if(birdEl) {
-                         birdEl.style.top = mgState.birdY + '%';
-                         birdEl.style.transform = `translate(-50%, -50%) rotate(${mgState.velocity * 3}deg)`;
-                     }
-                     if(scoreEl) scoreEl.innerText = `SCORE: ${mgState.score} / ${mgState.targetScore}`;
-                     
-                     // Render Pipes - still using innerHTML for pipes container is okay-ish, or could use DOM diffing, 
-                     // but let's stick to string injection for pipes only (much smaller payload than full app).
-                     if(pipesContainer) {
-                         pipesContainer.innerHTML = mgState.pipes.map(p => `
-                            <div class="absolute bg-gradient-to-b from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: 0; width: 60px; height: ${p.gapTop}%;">
-                                <div class="absolute bottom-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div>
-                            </div>
-                            <div class="absolute bg-gradient-to-t from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: ${p.gapTop + 30}%; width: 60px; height: ${100 - (p.gapTop + 30)}%;">
-                                <div class="absolute top-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div>
-                            </div>
-                         `).join('');
-                     }
-                     
-                     if(crashEl) {
-                         if(mgState.crashed) crashEl.classList.remove('hidden');
-                         else crashEl.classList.add('hidden');
-                     }
-                };
-
-                const gameLoop = setInterval(() => {
-                     if (!mgState.gameActive || mgState.crashed) return; 
-                     // ... physics logic ...
-                     mgState.velocity += mgState.gravity; 
-                     mgState.birdY += mgState.velocity * 0.4;
-                     
-                     if (mgState.birdY > 100 || mgState.birdY < 0) { triggerCrash(); return; } 
-                     
-                     if (Date.now() - mgState.lastPipeSpawn > 1800) { 
-                        mgState.pipes.push({ x: 110, gapTop: 15 + Math.random() * 45, passed: false }); 
-                        mgState.lastPipeSpawn = Date.now(); 
-                     } 
-                     
-                     mgState.pipes.forEach((p) => { 
-                        p.x -= 0.8; 
-                        if (30 + 4 > p.x && 30 - 4 < p.x + 12) { 
-                            if (mgState.birdY - 4 < p.gapTop || mgState.birdY + 4 > p.gapTop + 30) triggerCrash(); 
-                        } 
-                        if (!p.passed && p.x < 30) { 
-                            p.passed = true; 
-                            mgState.score++; 
-                            playTone(800, 0.2); 
-                            if (mgState.score >= mgState.targetScore) { 
-                                mgState.gameActive = false; 
-                                completeMinigame(); 
-                            } 
-                        } 
-                     }); 
-                     mgState.pipes = mgState.pipes.filter(p => p.x > -20);
-                     
-                     updateVisuals(); 
-                }, 20);
-                
-                // Collision Trigger
-                function triggerCrash() {
-                     mgState.crashed = true;
-                     playTone(150, 0.4);
-                     updateVisuals(); // Force update to show crash screen
-                     setGameTimeout(() => {
-                         mgState.birdY = 50;
-                         mgState.velocity = 0;
-                         mgState.pipes = [];
-                         mgState.score = 0;
-                         mgState.crashed = false;
-                         mgState.lastPipeSpawn = Date.now();
-                         // No need to call renderFlappy, just updateVisuals in next loop
-                     }, 1200);
-                }
-                
-                activeIntervals.push(gameLoop);
-                // Initial draw
-                updateVisuals();
+                container.innerHTML = `<div class="relative w-full h-full max-w-lg bg-sky-900 overflow-hidden border-x border-slate-700 select-none touch-none" id="flappy-area"><div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cloudy-day.png')]"></div><div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30"><div id="flappy-score" class="bg-black/60 px-4 py-2 rounded-xl border border-white/20 font-black text-2xl text-white shadow-xl">SCORE: 0 / ${mgState.targetScore}</div></div><div id="flappy-bird" class="absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 z-20 transition-transform duration-100" style="left: 30%; top: 50%;"><img src="${charImg}" class="w-full h-full object-cover rounded-full border-2 border-white shadow-2xl"></div><div id="flappy-pipes"></div><div id="flappy-crash" class="hidden absolute inset-0 bg-red-600/40 flex items-center justify-center z-50 animate-pulse"><div class="text-5xl font-black text-white uppercase italic drop-shadow-2xl">COLLISION!</div></div></div>`;
+                const birdEl = document.getElementById('flappy-bird'); const pipesContainer = document.getElementById('flappy-pipes'); const scoreEl = document.getElementById('flappy-score'); const crashEl = document.getElementById('flappy-crash'); const area = document.getElementById('flappy-area');
+                const jumpHandler = (e) => { if (mgState.crashed || !mgState.gameActive) return; if(e.cancelable) e.preventDefault(); mgState.velocity = mgState.jump; playTone(400, 0.1); }; area.addEventListener('mousedown', jumpHandler); area.addEventListener('touchstart', jumpHandler, { passive: false });
+                const updateVisuals = () => { if(birdEl) { birdEl.style.top = mgState.birdY + '%'; birdEl.style.transform = `translate(-50%, -50%) rotate(${mgState.velocity * 3}deg)`; } if(scoreEl) scoreEl.innerText = `SCORE: ${mgState.score} / ${mgState.targetScore}`; if(pipesContainer) { pipesContainer.innerHTML = mgState.pipes.map(p => `<div class="absolute bg-gradient-to-b from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: 0; width: 60px; height: ${p.gapTop}%;"><div class="absolute bottom-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div><div class="absolute bg-gradient-to-t from-green-600 to-green-400 border-x-4 border-green-800 z-10 shadow-lg" style="left: ${p.x}%; top: ${p.gapTop + 30}%; width: 60px; height: ${100 - (p.gapTop + 30)}%;"><div class="absolute top-0 w-[70px] -left-[5px] h-6 bg-green-500 border-4 border-green-800 rounded-sm"></div></div>`).join(''); } if(crashEl) { if(mgState.crashed) crashEl.classList.remove('hidden'); else crashEl.classList.add('hidden'); } };
+                const gameLoop = setInterval(() => { if (!mgState.gameActive || mgState.crashed) return; mgState.velocity += mgState.gravity; mgState.birdY += mgState.velocity * 0.4; if (mgState.birdY > 100 || mgState.birdY < 0) { triggerCrash(); return; } if (Date.now() - mgState.lastPipeSpawn > 1800) { mgState.pipes.push({ x: 110, gapTop: 15 + Math.random() * 45, passed: false }); mgState.lastPipeSpawn = Date.now(); } mgState.pipes.forEach((p) => { p.x -= 0.8; if (30 + 4 > p.x && 30 - 4 < p.x + 12) { if (mgState.birdY - 4 < p.gapTop || mgState.birdY + 4 > p.gapTop + 30) triggerCrash(); } if (!p.passed && p.x < 30) { p.passed = true; mgState.score++; playTone(800, 0.2); if (mgState.score >= mgState.targetScore) { mgState.gameActive = false; completeMinigame(); } } }); mgState.pipes = mgState.pipes.filter(p => p.x > -20); updateVisuals(); }, 20);
+                function triggerCrash() { mgState.crashed = true; playTone(150, 0.4); updateVisuals(); setGameTimeout(() => { mgState.birdY = 50; mgState.velocity = 0; mgState.pipes = []; mgState.score = 0; mgState.crashed = false; mgState.lastPipeSpawn = Date.now(); }, 1200); }
+                activeIntervals.push(gameLoop); updateVisuals();
 
             } else if (type === MINIGAMES.WIRE_MATCH) {
                 // ... (Wire Match Logic invariata) ...
@@ -975,62 +936,215 @@
                 setGameTimeout(renderWires, 50);
 
             } else if (type === MINIGAMES.ALPHABET) {
-                // *** ALPHABET GAME LOGIC ***
-                const renderAlpha = () => {
-                    const collectedStr = mgState.letters.filter(l => l.collected).map(l => l.char).join(' ');
-                    const nextCharStr = String.fromCharCode(mgState.nextChar);
+                // ... (Alphabet Logic invariata) ...
+                const renderAlpha = () => { const collectedStr = mgState.letters.filter(l => l.collected).map(l => l.char).join(' '); const nextCharStr = String.fromCharCode(mgState.nextChar); container.innerHTML = `<div id="alpha-board" class="relative w-full h-full max-w-4xl bg-slate-900 rounded-xl overflow-hidden border border-slate-700 select-none"><div class="absolute top-0 inset-x-0 h-16 bg-slate-800 border-b border-slate-600 flex items-center px-4 overflow-hidden z-20 shadow-md"><div class="text-green-400 font-mono font-bold text-lg md:text-xl truncate tracking-widest flex-1 mr-4">${collectedStr}</div><div class="flex items-center gap-2 bg-slate-700 px-3 py-1 rounded-lg border border-slate-600"><span class="text-slate-400 text-[10px] font-bold uppercase">TROVA</span><span class="text-white text-2xl font-black animate-pulse text-cyan-400">${nextCharStr}</span></div></div><div class="absolute inset-0 top-16 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">${mgState.letters.map(l => !l.collected ? `<div onclick="clickLetter('${l.char}')" class="absolute w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-white font-black text-2xl hover:border-white hover:bg-slate-700 hover:scale-110 hover:z-50 active:scale-95 transition-all cursor-pointer shadow-lg select-none" style="left: ${l.x}%; top: ${l.y}%; transform: translate(-50%, -50%);">${l.char}</div>` : '').join('')}</div></div>`; };
+                window.clickLetter = (char) => { const expected = String.fromCharCode(mgState.nextChar); if (char === expected) { const letterObj = mgState.letters.find(l => l.char === char); if(letterObj) letterObj.collected = true; playTone(300 + (mgState.nextChar - 65) * 30, 0.1); mgState.nextChar++; renderAlpha(); if (mgState.nextChar > 90) { completeMinigame(); } } else { playTone(100, 0.2); const board = document.getElementById('alpha-board'); if(board) { board.classList.add('bg-red-900'); setTimeout(() => board.classList.remove('bg-red-900'), 150); } } };
+                renderAlpha();
+            } else if (type === MINIGAMES.GUESS_TYPE) {
+                // ... (Guess Type Logic invariata) ...
+                const BUTTONS = ['💧', '🌿', '🔥', '🪨', '👻', '🌍', '⚡️', '🌪️'];
+                const renderGuess = () => { const currentQ = mgState.questions[mgState.round]; const isCooldown = mgState.cooldown; container.innerHTML = `<div class="flex flex-col items-center justify-center w-full h-full max-w-lg p-4 animate-fadeIn"><h2 class="text-xl font-black text-white mb-2 uppercase tracking-widest">DI CHE TIPO È?</h2><div class="relative w-full aspect-square md:aspect-video mb-4 rounded-2xl overflow-hidden border-4 border-slate-700 shadow-2xl bg-black"><img src="${currentQ.img}" class="w-full h-full object-contain">${isCooldown ? `<div class="absolute inset-0 bg-red-900/80 flex items-center justify-center backdrop-blur-sm animate-pulse"><div class="text-center"><div class="text-3xl font-black text-white mb-2">SBAGLIATO!</div><div class="text-sm font-bold text-red-200">ATTENDI 3 SECONDI...</div></div></div>` : ''}</div><div class="w-full grid grid-cols-4 gap-3">${BUTTONS.map(btn => `<button onclick="guessType('${btn}')" class="aspect-square bg-slate-800 border-2 border-slate-600 rounded-xl text-3xl hover:scale-105 active:scale-95 transition-all shadow-lg hover:border-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] disabled:opacity-50 disabled:grayscale" ${isCooldown ? 'disabled' : ''}>${btn}</button>`).join('')}</div></div>`; };
+                window.guessType = (selectedType) => { if (mgState.cooldown) return; const currentQ = mgState.questions[mgState.round]; if (selectedType === currentQ.type) { playTone(600, 0.1); playTone(800, 0.1); mgState.round++; if (mgState.round >= 4) { completeMinigame(); } else { renderGuess(); } } else { playTone(150, 0.4); mgState.cooldown = true; renderGuess(); setGameTimeout(() => { mgState.cooldown = false; renderGuess(); }, 3000); } };
+                renderGuess();
+            } else if (type === MINIGAMES.UNLOCK_CODE) {
+                // *** UNLOCK CODE RENDER & LOGIC ***
+                const renderUnlockCode = () => {
+                    const currentPattern = mgState.status === 'SHOWING' ? mgState.patterns[mgState.round] : mgState.userPath;
+                    const isDrawMode = mgState.status === 'DRAWING';
                     
+                    // Generate Dots HTML
+                    let dotsHtml = '';
+                    for (let i = 0; i < 9; i++) {
+                        const isActive = currentPattern.includes(i);
+                        let dotClass = 'bg-slate-700 border-slate-600';
+                        if (isActive) {
+                             if (mgState.status === 'SHOWING') dotClass = 'bg-cyan-500 border-cyan-300 shadow-[0_0_15px_cyan] scale-110';
+                             else if (mgState.status === 'CORRECT') dotClass = 'bg-green-500 border-green-300 shadow-[0_0_15px_lime] scale-110';
+                             else if (mgState.status === 'WRONG') dotClass = 'bg-red-500 border-red-300 shadow-[0_0_15px_red] scale-110';
+                             else if (isDrawMode) dotClass = 'bg-white border-slate-300 scale-110';
+                        }
+                        
+                        dotsHtml += `<div class="relative flex items-center justify-center w-16 h-16"><div class="w-6 h-6 rounded-full border-4 transition-all duration-200 ${dotClass}" id="dot-${i}"></div><div class="absolute inset-0 z-20" data-dot="${i}"></div></div>`;
+                    }
+
+                    // Generate Lines SVG
+                    let linesSvg = '';
+                    if (currentPattern.length > 1) {
+                         const getDotPos = (idx) => {
+                             const row = Math.floor(idx / 3);
+                             const col = idx % 3;
+                             // Assuming 64px (4rem) spacing + gaps. 
+                             // Let's rely on getBoundingClientRect in JS for dynamic lines, 
+                             // but for static preview we can approximation 0-100% logic if grid is fixed.
+                             // Actually, let's use JS to render lines to be safe with responsiveness.
+                         };
+                    }
+
                     container.innerHTML = `
-                        <div id="alpha-board" class="relative w-full h-full max-w-4xl bg-slate-900 rounded-xl overflow-hidden border border-slate-700 select-none">
-                            <!-- Top Status -->
-                            <div class="absolute top-0 inset-x-0 h-16 bg-slate-800 border-b border-slate-600 flex items-center px-4 overflow-hidden z-20 shadow-md">
-                                <div class="text-green-400 font-mono font-bold text-lg md:text-xl truncate tracking-widest flex-1 mr-4">${collectedStr}</div>
-                                <div class="flex items-center gap-2 bg-slate-700 px-3 py-1 rounded-lg border border-slate-600">
-                                    <span class="text-slate-400 text-[10px] font-bold uppercase">TROVA</span>
-                                    <span class="text-white text-2xl font-black animate-pulse text-cyan-400">${nextCharStr}</span>
+                        <div class="flex flex-col items-center justify-center w-full h-full max-w-lg select-none touch-none" id="unlock-container">
+                             <div class="mb-8 text-center animate-fadeIn">
+                                 <h2 class="text-xl font-bold text-slate-500 uppercase tracking-[0.2em] mb-1">LEVEL ${mgState.round + 1}/4</h2>
+                                 <div class="text-4xl font-black italic tracking-tighter ${mgState.status === 'SHOWING' ? 'text-cyan-400 animate-pulse' : mgState.status === 'DRAWING' ? 'text-white' : mgState.status === 'CORRECT' ? 'text-green-400' : 'text-red-500'}">${mgState.statusText}</div>
+                             </div>
+                             
+                             <div class="relative p-6 bg-slate-900 rounded-3xl border-4 border-slate-700 shadow-2xl" id="unlock-grid">
+                                <svg id="unlock-svg" class="absolute inset-0 w-full h-full pointer-events-none z-10" style="overflow: visible;">
+                                    <polyline points="" fill="none" stroke="${mgState.status === 'SHOWING' ? '#06b6d4' : mgState.status === 'CORRECT' ? '#22c55e' : mgState.status === 'WRONG' ? '#ef4444' : '#ffffff'}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" class="transition-all duration-200" id="pattern-line" />
+                                </svg>
+                                <div class="grid grid-cols-3 gap-8 md:gap-12 relative z-20">
+                                    ${dotsHtml}
                                 </div>
-                            </div>
-                            
-                            <!-- Letters Field -->
-                            <div class="absolute inset-0 top-16 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
-                                ${mgState.letters.map(l => !l.collected ? `
-                                    <div onclick="clickLetter('${l.char}')" 
-                                         class="absolute w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-xl flex items-center justify-center text-white font-black text-2xl hover:border-white hover:bg-slate-700 hover:scale-110 hover:z-50 active:scale-95 transition-all cursor-pointer shadow-lg select-none"
-                                         style="left: ${l.x}%; top: ${l.y}%; transform: translate(-50%, -50%);">
-                                        ${l.char}
-                                    </div>
-                                ` : '').join('')}
-                            </div>
+                             </div>
                         </div>
                     `;
+                    
+                    // Draw lines after render
+                    setTimeout(() => drawLines(currentPattern), 0);
                 };
 
-                window.clickLetter = (char) => {
-                    const expected = String.fromCharCode(mgState.nextChar);
-                    if (char === expected) {
-                        const letterObj = mgState.letters.find(l => l.char === char);
-                        if(letterObj) letterObj.collected = true;
-                        
-                        // Audio pitch crescente
-                        playTone(300 + (mgState.nextChar - 65) * 30, 0.1); 
-                        
-                        mgState.nextChar++;
-                        renderAlpha();
-                        
-                        if (mgState.nextChar > 90) { // Dopo la 'Z' (90)
-                             completeMinigame();
-                        }
-                    } else {
-                        // Errore visivo e sonoro
-                         playTone(100, 0.2); // Basso
-                         const board = document.getElementById('alpha-board');
-                         if(board) {
-                             board.classList.add('bg-red-900');
-                             setTimeout(() => board.classList.remove('bg-red-900'), 150);
+                const drawLines = (path) => {
+                    const svgLine = document.getElementById('pattern-line');
+                    if (!svgLine) return;
+                    
+                    // If drawing and we have a lastPos (finger position), add it
+                    let pts = path.map(idx => {
+                        const dot = document.getElementById(`dot-${idx}`);
+                        if(!dot) return '0,0';
+                        const rect = dot.getBoundingClientRect();
+                        const gridRect = document.getElementById('unlock-grid').getBoundingClientRect();
+                        return `${rect.left + rect.width/2 - gridRect.left},${rect.top + rect.height/2 - gridRect.top}`;
+                    });
+
+                    if (mgState.status === 'DRAWING' && mgState.lastPos && path.length > 0) {
+                         const gridRect = document.getElementById('unlock-grid').getBoundingClientRect();
+                         pts.push(`${mgState.lastPos.x - gridRect.left},${mgState.lastPos.y - gridRect.top}`);
+                    }
+                    
+                    svgLine.setAttribute('points', pts.join(' '));
+                };
+
+                // INPUT HANDLING
+                const handleStart = (e) => {
+                    if (mgState.status !== 'DRAWING') return;
+                    e.preventDefault();
+                    // Check if hitting a dot
+                    handleMove(e);
+                };
+
+                const handleMove = (e) => {
+                    if (mgState.status !== 'DRAWING') return;
+                    e.preventDefault();
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    
+                    mgState.lastPos = { x: clientX, y: clientY };
+
+                    // Collision detection with dots
+                    // Use document.elementFromPoint is risky with overlays, better calculate distance
+                    for(let i=0; i<9; i++) {
+                         const dot = document.getElementById(`dot-${i}`);
+                         if(!dot) continue;
+                         const rect = dot.getBoundingClientRect();
+                         const cx = rect.left + rect.width/2;
+                         const cy = rect.top + rect.height/2;
+                         const dist = Math.hypot(clientX - cx, clientY - cy);
+                         
+                         if(dist < 30) { // Hit radius
+                             if (!mgState.userPath.includes(i)) {
+                                 // Basic adjacency check? Or allow jumps? 
+                                 // Let's enforce adjacency for "realism" or just allow anything for ease?
+                                 // Let's allow anything that isn't already in path to avoid frustration
+                                 mgState.userPath.push(i);
+                                 playTone(300 + mgState.userPath.length * 50, 0.05);
+                                 renderUnlockCode(); // Re-render to update dot styles
+                             }
                          }
                     }
+                    // Update line only
+                    drawLines(mgState.userPath);
                 };
-                renderAlpha();
+
+                const handleEnd = (e) => {
+                    if (mgState.status !== 'DRAWING') return;
+                    e.preventDefault();
+                    
+                    // Check Result
+                    const target = mgState.patterns[mgState.round];
+                    const user = mgState.userPath;
+                    
+                    const isCorrect = user.length === target.length && user.every((val, index) => val === target[index]);
+                    
+                    if(isCorrect) {
+                        mgState.status = 'CORRECT';
+                        mgState.statusText = 'CORRETTO!';
+                        playTone(800, 0.1); playTone(1200, 0.2);
+                        renderUnlockCode();
+                        
+                        setGameTimeout(() => {
+                            mgState.round++;
+                            if(mgState.round >= 4) {
+                                completeMinigame();
+                            } else {
+                                mgState.status = 'SHOWING';
+                                mgState.statusText = 'MEMORIZZA!';
+                                mgState.userPath = [];
+                                mgState.lastPos = null;
+                                renderUnlockCode();
+                                runRoundLogic();
+                            }
+                        }, 1000);
+                    } else {
+                        mgState.status = 'WRONG';
+                        mgState.statusText = 'ERRORE!';
+                        playTone(150, 0.3);
+                        renderUnlockCode();
+                        
+                        setGameTimeout(() => {
+                            // Retry same level
+                            mgState.status = 'SHOWING';
+                            mgState.statusText = 'RIPROVA!';
+                            mgState.userPath = [];
+                            mgState.lastPos = null;
+                            renderUnlockCode();
+                            runRoundLogic();
+                        }, 1500);
+                    }
+                };
+
+                const runRoundLogic = () => {
+                     const level = mgState.levels[mgState.round];
+                     setGameTimeout(() => {
+                         mgState.status = 'DRAWING';
+                         mgState.statusText = 'DISEGNA!';
+                         renderUnlockCode();
+                     }, level.showTime);
+                };
+
+                // Attach events
+                // Since renderUnlockCode replaces innerHTML, we need to bind events to container or document
+                // but `renderMinigameLogic` is called only once. 
+                // Wait... renderUnlockCode is called initially, so we need to set up listeners ONCE.
+                // The container `minigame-container` is stable.
+                
+                container.addEventListener('mousedown', handleStart);
+                container.addEventListener('touchstart', handleStart, { passive: false });
+                window.addEventListener('mousemove', handleMove);
+                window.addEventListener('touchmove', handleMove, { passive: false });
+                window.addEventListener('mouseup', handleEnd);
+                window.addEventListener('touchend', handleEnd);
+                
+                globalCleanupFns.push(() => {
+                    container.removeEventListener('mousedown', handleStart);
+                    container.removeEventListener('touchstart', handleStart);
+                    window.removeEventListener('mousemove', handleMove);
+                    window.removeEventListener('touchmove', handleMove);
+                    window.removeEventListener('mouseup', handleEnd);
+                    window.removeEventListener('touchend', handleEnd);
+                });
+
+                // Start first round
+                renderUnlockCode();
+                runRoundLogic();
             }
         }
     </script>
